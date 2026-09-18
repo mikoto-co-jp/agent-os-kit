@@ -10,7 +10,7 @@
 #
 # 使い方:
 #   bash scripts/make-kit.sh <出力先>                       出力先は空か存在しない dir。門（固有値 0 件）を通れば exit 0
-#   bash scripts/make-kit.sh --fill <棚> 呼び名=… 事業名=… 棚の名前=… 棚の置き場=… "git remote=…"
+#   bash scripts/make-kit.sh --fill <棚> 名前=… 事業名=… 棚の名前=… 棚の置き場=… "git remote=…"
 #                                                          雛形の {名前} を埋める（冪等。無い穴は何もしない。埋めない穴は残る）
 #   bash scripts/make-kit.sh --drift                        雛形と生きている紙の骨が一致するか（exit 0/1）
 #   bash scripts/make-kit.sh --selftest                     空の一時 git リポに切り出して門を全部撃つ。exit 0＝合格／1＝壊れている／3＝負制御が落ちなかった
@@ -180,9 +180,9 @@ selftest() {
   step "1 素の切り出し"; bash "$0" "$kit" > "$t/cut.log" 2>&1 || { cat "$t/cut.log"; die "selftest: 切り出しが exit 0 にならない"; }
   step "2 drift（雛形の骨）"; bash "$0" --drift || die "selftest: 雛形が生きている紙とずれている"
   step "3 fill（{名前} を埋める・冪等）"
-  bash "$0" --fill "$kit" 呼び名=検体 事業名=検体商店 棚の名前=検体の棚 棚の置き場="$kit" "git remote=検体remote" > /dev/null || die "selftest: fill が落ちた"
-  grep -rlE '\{(呼び名|事業名|棚の名前|棚の置き場|git remote)\}' "$kit" --include='*.md' && die "selftest: fill の後に穴が残った"
-  bash "$0" --fill "$kit" 呼び名=検体 > /dev/null || die "selftest: fill を 2 回撃つと落ちる（冪等でない）"
+  bash "$0" --fill "$kit" 名前=検体 事業名=検体商店 棚の名前=検体の棚 棚の置き場="$kit" "git remote=検体remote" > /dev/null || die "selftest: fill が落ちた"
+  grep -rlE '\{(名前|事業名|棚の名前|棚の置き場|git remote)\}' "$kit" --include='*.md' && die "selftest: fill の後に穴が残った"
+  bash "$0" --fill "$kit" 名前=検体 > /dev/null || die "selftest: fill を 2 回撃つと落ちる（冪等でない）"
   step "4 空の git リポで道具が走る"
   ( cd "$kit" && git init -q && git config core.hooksPath scripts/git-hooks ) || die "selftest: git init"
   mkdir -p "$t/sched"
