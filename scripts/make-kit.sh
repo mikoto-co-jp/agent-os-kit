@@ -5,7 +5,7 @@
 #   道具（scripts/ の固定リストと git-hooks/）・.gitignore・便の手順の雛形 1 枚。**中身は 1 行も入れない**（規矩 X-7）。
 #   docs/SCOPE_PROGRESS.md は入れない＝生成器が最初に書く（`python3 scripts/build_scope_progress.py`）。
 # 🔑 雛形の置き場: scripts/kit/（生きている紙から固有値・件数・日付つきの社内事故を抜いた写し）。雛形も出力に入れる（建てた棚が自分で門を撃ち、次の棚を切り出せる）。
-#   写しは腐るので **--drift** が門: 規矩の X-1〜X-8・H-1〜H-4・帳簿の列・領域 8 語・種別・層、箱の state 8 語 が
+#   写しは腐るので **--drift** が門: 規矩の X・H（雛形は生きている紙の部分集合・番号は連番）・帳簿の列・領域 8 語・種別・層、箱の state 8 語 が
 #   生きている紙（.claude/rules/・scripts/kiroku.py）と一致しなければ exit 1。--selftest はこれも撃つ。
 #
 # 使い方:
@@ -55,7 +55,17 @@ def bones(lines):
 live = bones(read(os.path.join(root, ".claude/rules/規矩.md")))
 tmpl = bones(read(os.path.join(kit, ".claude/rules/規矩.md")))
 rc = 0
+# X・H は「雛形 ⊆ 生きている紙」を中身で照合（主君が器から落とした行が在る＝2026-09-18・番号は雛形側で 1..n の連番に振り直す）
+for pre in ("X ", "H "):
+    live_vals = {v for k, v in live.items() if k.startswith(pre)}
+    tk = sorted((k for k in tmpl if k.startswith(pre)), key=lambda k: int(k.split("-")[1]))
+    for i, k in enumerate(tk, 1):
+        if k != f"{pre}{pre.strip()}-{i}":
+            rc = 1; print(f"❌ 規矩 {k}: 雛形の番号が連番でない（期待 {pre.strip()}-{i}）")
+        if tmpl[k] not in live_vals:
+            rc = 1; print(f"❌ 規矩 {k}: 雛形の行が生きている紙に無い {tmpl[k]!r}")
 for k in sorted(set(live) | set(tmpl)):
+    if k[:2] in ("X ", "H "): continue
     if live.get(k) != tmpl.get(k):
         rc = 1; print(f"❌ 規矩 {k}: 生 {live.get(k)!r} ／ 雛形 {tmpl.get(k)!r}")
 sys.path.insert(0, os.path.join(root, "scripts")); import kiroku
@@ -64,7 +74,7 @@ for name in ("メモリシステム.md",):
     for label, p in (("生", os.path.join(root, ".claude/rules", name)), ("雛形", os.path.join(kit, ".claude/rules", name))):
         if states not in open(p, encoding="utf-8").read():
             rc = 1; print(f"❌ {label} {name}: kiroku.STATES（{states}）の並びが載っていない")
-print("✅ drift: 雛形の骨（X-1〜X-8・H-1〜H-4・列・領域・種別・層・state 8 語）は生きている紙と一致" if rc == 0 else "🚨 drift: 雛形が腐っている。scripts/kit/ を直す")
+print("✅ drift: 雛形の骨（X・H は部分集合・列・領域・種別・層・state 8 語）は生きている紙と一致" if rc == 0 else "🚨 drift: 雛形が腐っている。scripts/kit/ を直す")
 sys.exit(rc)
 PY
 }
