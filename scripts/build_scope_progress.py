@@ -3,18 +3,18 @@
 
 型の正本はこの docstring（旧 影分身/分身.md §3-1 は 2026-09-15 に退役）。節の順は固定。空の節は「（なし）」1 行。
 語彙表（箱の state・鍵）は scripts/kiroku.py から import する（主君裁定 2026-09-18・帳簿 id=440）。
-  1. プロジェクト     07プロジェクト/*/status.md を state 別（起案／裁定待ち／実行中／外部待ち／確認待ち／完了）の表＝箱｜owner｜next｜updated。
-                      status.md の無い箱・語彙外の state は赤。08アーカイブ/案件/ の凍結箱は末尾に一覧
+  1. プロジェクト     08プロジェクト/*/status.md を state 別（起案／裁定待ち／実行中／外部待ち／確認待ち／完了）の表＝箱｜owner｜next｜updated。
+                      status.md の無い箱・語彙外の state は赤。09アーカイブ/案件/ の凍結箱は末尾に一覧
   2. 裁定表           00廷議/*.md（7 項目）の全数 ＋ 各箱の ask（問い｜選択肢｜推奨｜決めないと）。束ねない。推奨なしは差し戻し
   3. 主君の手         lever が非空の箱＝箱｜何を｜何秒｜閉じると何が動くか
   4. 待ち受け         until が非空の箱＝箱｜何を｜誰から｜期待日（今日を過ぎていれば 🔴）
-                      ＋ 再開の合図＝08アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。廷議が毎朝 1 件ずつ引く・帳簿 id=475）
+                      ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。廷議が毎朝 1 件ずつ引く・帳簿 id=475）
   5. Routine          scheduler の正本 ~/.claude/scheduler/schedules.json（--schedules <json> で差し替え可）。agent 列＝その便を走らせる席
-  6. エージェント（席） 09私用/プロンプト資産/_索引.md の箱ごとの体数 ＋ --monsters <json>（list_monsters の結果）
-  7. 完了（30 日）    08アーカイブ/案件/*.md の墓標
-  8. 棚の差分         数だけ（07プロジェクト・00廷議・一段目のみ。深い走査はしない）
+  6. エージェント（席） 06エージェント資産/プロンプト資産/_索引.md の箱ごとの体数 ＋ --monsters <json>（list_monsters の結果）
+  7. 完了（30 日）    09アーカイブ/案件/*.md の墓標
+  8. 棚の差分         数だけ（08プロジェクト・00廷議・一段目のみ。深い走査はしない）
 
---check: 自己一致。①生成器の語彙が kiroku.STATES と同じ ②07プロジェクト/ の全箱が kiroku --check を通る
+--check: 自己一致。①生成器の語彙が kiroku.STATES と同じ ②08プロジェクト/ の全箱が kiroku --check を通る
         ③箱から作る節（1〜4）を今の docs/SCOPE_PROGRESS.md と比べて一致（生成し直しが要るなら exit 1）
 
 退役した生成器をここへ畳んだ（2026-09-14）:
@@ -39,12 +39,12 @@ ROOT = os.environ.get("MIKOTO_OS_ROOT") or os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))
 OUT_DEFAULT = os.path.join(ROOT, "docs", "SCOPE_PROGRESS.md")
 SCHED_DIR = os.environ.get("SCHEDULER_DIR") or os.path.expanduser("~/.claude/scheduler")
-PROJ = os.path.join(ROOT, "07プロジェクト")
+PROJ = os.path.join(ROOT, "08プロジェクト")
 APPROVE = os.path.join(ROOT, "00廷議")
-GRAVES = os.path.join(ROOT, "08アーカイブ", "案件")
+GRAVES = os.path.join(ROOT, "09アーカイブ", "案件")
 PROCS = os.path.join(ROOT, "docs", "定期便-手順")
 LOGS = os.path.join(ROOT, "docs", "定期便-ログ")
-PROMPTS = os.path.join(ROOT, "09私用", "プロンプト資産")
+PROMPTS = os.path.join(ROOT, "06エージェント資産", "プロンプト資産")
 PROMPT_INDEX = os.path.join(PROMPTS, "_索引.md")
 SKILL_INDEX = os.path.join(PROMPTS, "06二軍エージェント", "_索引-スキル.md")
 DONE_DAYS = 30
@@ -232,7 +232,7 @@ def read_untils(projects):
 
 
 def read_resumes():
-    """08アーカイブ/案件/<箱>/status.md の resume（何を｜誰から｜どこで拾う）"""
+    """09アーカイブ/案件/<箱>/status.md の resume（何を｜誰から｜どこで拾う）"""
     out = []
     for d in sorted(glob.glob(os.path.join(GRAVES, "*"))):
         sp = os.path.join(d, "status.md")
@@ -327,7 +327,7 @@ def read_routine(sched_path):
 # ---------- 6. エージェント（席） ----------
 
 def read_prompt_boxes():
-    """09私用/プロンプト資産/_索引.md の「## 箱ごとの体数」を読む。無ければ棚を直に数える。"""
+    """06エージェント資産/プロンプト資産/_索引.md の「## 箱ごとの体数」を読む。無ければ棚を直に数える。"""
     boxes = []
     if os.path.exists(PROMPT_INDEX):
         with open(PROMPT_INDEX, encoding="utf-8") as f:
@@ -547,7 +547,7 @@ def read_shelf(no_status):
     return {"no_status": len(no_status), "big": len(big), "big_list": big[:5],
             "hook": os.path.exists(os.path.join(ROOT, ".git", "hooks", "pre-commit")),
             "approve": os.path.isdir(APPROVE),
-            "tmp": os.path.isdir(os.path.join(ROOT, "10一時ファイル"))}
+            "tmp": os.path.isdir(os.path.join(ROOT, "11一時ファイル"))}
 
 
 # ---------- 組み立て ----------
@@ -592,7 +592,7 @@ def build(args):
          f"／便 {len(routine)} 本（fail {fail}・ログ未記録 {nolog}）"
          f"／席 {seat_total} 体（稼働 {seat_run}）／完了 {len(done)}（{DONE_DAYS} 日）",
          "",
-         "## 1. プロジェクト（07プロジェクト/ の箱・state 別）", ""]
+         "## 1. プロジェクト（08プロジェクト/ の箱・state 別）", ""]
 
     def box_rows(rs):
         return [f"| {cell(r['name'])} | {cell(r['owner']) or '?'} | {cell(r['next'], 90) or '—'} | "
@@ -614,7 +614,7 @@ def build(args):
                 f"{cell(r['name'])} | "
                 f"{'status.md を kiroku.py box で作る' if r['state'] == '状態なし' else 'state を語彙（' + '｜'.join(STATES) + '）に直す'} |"
                 for r in bad])
-    L += ["", f"凍結（08アーカイブ/案件/ の箱・再点火は主君）: " + ("・".join(frozen) if frozen else "（なし）")]
+    L += ["", f"凍結（09アーカイブ/案件/ の箱・再点火は主君）: " + ("・".join(frozen) if frozen else "（なし）")]
 
     L += ["", "## 2. 裁定表（00廷議/ ＋ 箱の ask・番号で返す）", ""]
     L += table("| # | 席 | 問い | 推奨 | 期限 | 決めないと |",
@@ -634,7 +634,7 @@ def build(args):
     L += table("| 箱 | 何を | 誰から | 期待日 |",
                [f"| {cell(r['name'])} | {cell(r['what'], 80)} | {cell(r['who'], 40)} | "
                 f"{'🔴 ' if r['late'] else ''}{cell(r['when'])} |" for r in untils])
-    L += ["", "### 再開の合図（08アーカイブ/案件/ の閉じた箱・resume が非空。来ていたら箱を 07プロジェクト/ へ戻す）", ""]
+    L += ["", "### 再開の合図（09アーカイブ/案件/ の閉じた箱・resume が非空。来ていたら箱を 08プロジェクト/ へ戻す）", ""]
     L += table("| 箱 | 何を | 誰から | どこで拾う |",
                [f"| {cell(r['name'])} | {cell(r['what'], 80)} | {cell(r['who'], 40)} | {cell(r['where'], 60)} |"
                 for r in resumes])
@@ -652,7 +652,7 @@ def build(args):
                [f"| {cell(r['席'], 60)} | {r['箱']} | {r['体数']} | {r['稼働中']} | "
                 f"{cell(r['cwd'], 60)} | {r['最終発火']} |" for r in seats])
     L += [""] + seats_foot
-    L += ["", "（正本: BlueLamp の DB。写しは 09私用/プロンプト資産/ ＝ git 外）"]
+    L += ["", "（正本: BlueLamp の DB。写しは 06エージェント資産/プロンプト資産/ ＝ git に載る）"]
 
     L += ["", f"## 7. 完了（{DONE_DAYS} 日・墓標から）", ""]
     L += table("| 閉じた日 | プロジェクト | absorb 先 | 墓標 |",
@@ -663,7 +663,7 @@ def build(args):
           f"status.md 無し {shelf['no_status']}／語彙外 {n['語彙外']}／`一時ファイル` の外の実体（5 MB 超）{shelf['big']}"
           f"／pre-commit {'あり' if shelf['hook'] else '**なし**'}"
           f"／00廷議 {'あり' if shelf['approve'] else '**なし**'}"
-          f"／10一時ファイル {'あり' if shelf['tmp'] else '**なし**'}"]
+          f"／11一時ファイル {'あり' if shelf['tmp'] else '**なし**'}"]
     if shelf["big_list"]:
         L += ["", "- 実体: " + " / ".join(shelf["big_list"])]
     L.append("")

@@ -25,8 +25,8 @@ GATE="$ROOT/scripts/check-distributable.sh"
 # 当社固有の生成器（course/・register/・経理/・mirror_*.py・build_distribution_ledgers.py ほか）は入れない。足すならここに 1 行
 KIT_TOOLS="kiroku.py build_scope_progress.py check-distributable.sh make-kit.sh"
 KIT_HOOKS="pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-commit-box.sh"
-KIT_BOXES="00廷議 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06学習資産 07プロジェクト
-08アーカイブ/案件 08アーカイブ/裁定 08アーカイブ/カード 09私用 10一時ファイル docs/定期便-手順 docs/定期便-ログ"
+KIT_BOXES="00廷議 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06エージェント資産 07学習資産 08プロジェクト
+09アーカイブ/案件 09アーカイブ/裁定 09アーカイブ/カード 10私用 11一時ファイル docs/定期便-手順 docs/定期便-ログ"
 # ==================================================================================================
 
 die() { echo "🚨 $*" >&2; exit "${2:-1}"; }
@@ -137,7 +137,7 @@ cut() {
 #!/bin/sh
 # pre-commit（配線: git config core.hooksPath scripts/git-hooks）
 # 4 本を順に撃つ。1 本でも落ちたら commit しない。強行は --no-verify
-#   秘密（鍵・接続文字列）／PII（口座・カード・個人番号）／死んだ参照（改訂される紙が指す実在しないパス）／箱（07プロジェクト/ の status.md が語彙表に合うか）
+#   秘密（鍵・接続文字列）／PII（口座・カード・個人番号）／死んだ参照（改訂される紙が指す実在しないパス）／箱（08プロジェクト/ の status.md が語彙表に合うか）
 D=$(dirname "$0"); FAIL=0
 for h in pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-commit-box.sh; do sh "$D/$h" || FAIL=1; done
 exit $FAIL
@@ -146,11 +146,11 @@ SH
   # 3) .gitignore
   cat > "$OUT/.gitignore" <<'GI'
 # 見せない物。ここに置いた物は git に載らない
-09私用/
+10私用/
 # 途中物。プロジェクトと一緒に消える
 **/一時ファイル/
 # プロジェクトに属さない途中物
-10一時ファイル/
+11一時ファイル/
 # 生成物。再生成できる
 .venv/
 node_modules/
@@ -189,14 +189,14 @@ selftest() {
   ( cd "$kit" && SCHEDULER_DIR="$t/sched" python3 scripts/build_scope_progress.py 2> "$t/gen.err" ) || { cat "$t/gen.err"; die "selftest: build_scope_progress.py が落ちた"; }
   [ -s "$kit/docs/SCOPE_PROGRESS.md" ] || die "selftest: docs/SCOPE_PROGRESS.md が書かれていない"
   ( cd "$kit" && python3 scripts/kiroku.py box --slug 2000-01-01-検体 --title 検体 --state 起案 --owner 初期セットアップ席 --absorb なし > /dev/null ) || die "selftest: kiroku.py box が落ちた"
-  ( cd "$kit" && python3 scripts/kiroku.py --check 07プロジェクト > /dev/null ) || die "selftest: kiroku.py --check が正しい箱で落ちる"
+  ( cd "$kit" && python3 scripts/kiroku.py --check 08プロジェクト > /dev/null ) || die "selftest: kiroku.py --check が正しい箱で落ちる"
   step "5 門の正の対照（正しい物を stage して pre-commit が通る）"
-  ( cd "$kit" && git add -- CLAUDE.md .gitignore .claude/rules/規矩.md .claude/rules/メモリシステム.md .claude/rules/主君.md docs/定期便-手順/SCOPE_PROGRESSの生成.md docs/SCOPE_PROGRESS.md 07プロジェクト/2000-01-01-検体/status.md \
+  ( cd "$kit" && git add -- CLAUDE.md .gitignore .claude/rules/規矩.md .claude/rules/メモリシステム.md .claude/rules/主君.md docs/定期便-手順/SCOPE_PROGRESSの生成.md docs/SCOPE_PROGRESS.md 08プロジェクト/2000-01-01-検体/status.md \
       && sh scripts/git-hooks/pre-commit ) || die "selftest: 正しい物で pre-commit が落ちる（門が壊れている）"
   step "6 門の負制御 A（語彙外の state で pre-commit が落ちる）"
-  mkdir -p "$kit/07プロジェクト/2000-01-02-悪い箱"
-  printf -- '---\ntitle: 悪い箱\nstate: 未着手\nowner: x\nask: \nlever: \nuntil: \nresume: \nnext: \nabsorb: x\ndue: \ntmp_ttl: \nupdated: 2000-01-02\n---\n# 悪い箱\n' > "$kit/07プロジェクト/2000-01-02-悪い箱/status.md"
-  if ( cd "$kit" && git add -- 07プロジェクト/2000-01-02-悪い箱/status.md && sh scripts/git-hooks/pre-commit > /dev/null 2>&1 ); then
+  mkdir -p "$kit/08プロジェクト/2000-01-02-悪い箱"
+  printf -- '---\ntitle: 悪い箱\nstate: 未着手\nowner: x\nask: \nlever: \nuntil: \nresume: \nnext: \nabsorb: x\ndue: \ntmp_ttl: \nupdated: 2000-01-02\n---\n# 悪い箱\n' > "$kit/08プロジェクト/2000-01-02-悪い箱/status.md"
+  if ( cd "$kit" && git add -- 08プロジェクト/2000-01-02-悪い箱/status.md && sh scripts/git-hooks/pre-commit > /dev/null 2>&1 ); then
     echo "🚨 selftest: 語彙外の state なのに pre-commit が通った（門が死んでいる）"; rm -rf "$t"; exit 3
   fi
   step "7 門の負制御 B（固有値を入れて check-distributable が落ちる）"

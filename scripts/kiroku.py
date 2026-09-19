@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""kiroku.py — 07プロジェクト の箱（status.md）の frontmatter を、同じ語彙表から吐き・検める道具（主君裁定 2026-09-18・帳簿 id=440）。
+"""kiroku.py — 08プロジェクト の箱（status.md）の frontmatter を、同じ語彙表から吐き・検める道具（主君裁定 2026-09-18・帳簿 id=440）。
 
 語彙表はこのファイルの先頭 1 か所だけ。生成器（build_scope_progress.py）もここを import して読む。
 土台は CTO リポ `scripts/kiroku.py`（origin/main）。STATES は CTO 版と同じ語彙表に揃える（`--vocab-diff` が門）。
@@ -11,8 +11,8 @@ BOX_KEYS はこの棚の箱の鍵（主君裁定の表）で、CTO の箱の鍵�
                 [--ask …] [--lever …] [--until …] [--resume …] [--next …] [--due YYYY-MM-DD] [--tmp_ttl 30d]
             updated は道具が今日の日付を入れる（人は書かない）
   --check   紙が語彙表に合うか（exit 0/1・理由）。パスが箱の親フォルダなら、配下の全箱を検め、status.md の無い箱も exit 1
-            python3 scripts/kiroku.py --check 07プロジェクト
-            python3 scripts/kiroku.py --check 07プロジェクト/*/status.md
+            python3 scripts/kiroku.py --check 08プロジェクト
+            python3 scripts/kiroku.py --check 08プロジェクト/*/status.md
   --vocab-diff <CTO の kiroku.py>   2 つの語彙表（STATES）を比べ、食い違えば exit 1（門）
             python3 scripts/kiroku.py --vocab-diff <CTO リポ>/scripts/kiroku.py
             BOX_KEYS は設計上別（dev は n・scope・constraints・escalate／この棚は due・tmp_ttl）なので情報表示だけ（孔明裁定 2026-09-18・帳簿 id=450）
@@ -25,15 +25,15 @@ import argparse, ast, datetime as dt, os, re, sys
 #   裁定待ち 主君の答え待ち（ask が非空）
 #   実行中   席が動いている
 #   外部待ち 外の人か出来事（主君の手＝lever を含む）を待つ。until の期待日は日付必須（未定は不可）。
-#            期待日を書けない＝こちらの手番が無い（投げ終わり）→ 完了にして resume を書き 08アーカイブ/案件/ へ（主君裁定 2026-09-18・帳簿 id=475）
+#            期待日を書けない＝こちらの手番が無い（投げ終わり）→ 完了にして resume を書き 09アーカイブ/案件/ へ（主君裁定 2026-09-18・帳簿 id=475）
 #   確認待ち 席が終えて検収待ち
 #   統合可   dev だけ（この棚では使わない・行は残す）
 #   完了     終わりの定義を実測して閉じた
 #   吸収済   absorb 先へ写した・墓標
 STATES = ("起案", "裁定待ち", "実行中", "外部待ち", "確認待ち", "統合可", "完了", "吸収済")
 # 旧語の読み替え（--check が理由に出す）
-STATE_LEGACY = {"未着手": "起案", "条件待ち": "外部待ち", "対応中": "実行中", "凍結": "（08アーカイブ/案件/ の箱で表す）"}
-# 07プロジェクト/<箱>/status.md の frontmatter 11 項目（この順）。これ以外の鍵は --check が弾く
+STATE_LEGACY = {"未着手": "起案", "条件待ち": "外部待ち", "対応中": "実行中", "凍結": "（09アーカイブ/案件/ の箱で表す）"}
+# 08プロジェクト/<箱>/status.md の frontmatter 11 項目（この順）。これ以外の鍵は --check が弾く
 BOX_KEYS = ("title", "state", "owner", "ask", "lever", "until", "resume", "next", "absorb", "due", "tmp_ttl", "updated")
 BOX_EMPTY_OK = ("ask", "lever", "until", "resume", "next", "due", "tmp_ttl")
 # ============================== writer（1 項目 1 人）==============================
@@ -54,7 +54,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TTL_RE = re.compile(r"^\d+d$")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BOX_DIR = os.path.join(ROOT, "07プロジェクト")
+BOX_DIR = os.path.join(ROOT, "08プロジェクト")
 FM_RE = re.compile(r"^---\n(.*?)\n---\n?", re.S)
 
 
@@ -156,7 +156,7 @@ def why_state(fm):
     if st == "外部待ち" and not (one_line(fm.get("until")) or one_line(fm.get("lever"))):
         return "state 外部待ち なのに until も lever も空（外の人か出来事＝until・主君の手＝lever）"
     if st == "外部待ち" and one_line(fm.get("until")).endswith(SEP + "未定"):
-        return "state 外部待ち の until に期待日が無い（未定）。こちらの続きが在るなら日付を書く。無い（投げ終わり）なら 完了 にして resume を書き 08アーカイブ/案件/ へ"
+        return "state 外部待ち の until に期待日が無い（未定）。こちらの続きが在るなら日付を書く。無い（投げ終わり）なら 完了 にして resume を書き 09アーカイブ/案件/ へ"
     if one_line(fm.get("resume")) and st != "完了":
         return f"resume が在るのに state が {st}（resume は 完了 の箱だけ＝閉じたが合図で戻る）"
     return None
@@ -292,12 +292,12 @@ def main(argv=None):
     ap.add_argument("--check", nargs="+", metavar="PATH", help="紙が語彙表に合うか（exit 0/1・理由）。箱の親フォルダも可")
     ap.add_argument("--vocab-diff", metavar="KIROKU_PY", help="別の kiroku.py と語彙表を比べる（exit 0/1）")
     sub = ap.add_subparsers(dest="cmd")
-    p = sub.add_parser("box", help="07プロジェクト/<slug>/status.md の frontmatter")
+    p = sub.add_parser("box", help="08プロジェクト/<slug>/status.md の frontmatter")
     p.add_argument("--slug", required=True)
     for k in BOX_KEYS:
         if k != "updated":
             p.add_argument(f"--{k}", default=None)
-    p.add_argument("--root", help="箱の親（既定 <棚>/07プロジェクト/）")
+    p.add_argument("--root", help="箱の親（既定 <棚>/08プロジェクト/）")
     a = ap.parse_args(argv)
     if a.check:
         return cmd_check(a.check)
