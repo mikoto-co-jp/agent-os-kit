@@ -1,6 +1,6 @@
 #!/bin/sh
 # 死んだ参照の門（2026-09-15）
-# 検査するのは「改訂される紙」だけ: .claude/rules/・CLAUDE.md・docs/定期便-手順/・01〜06 の棚。
+# 検査するのは「改訂される紙」だけ: .claude/rules/・CLAUDE.md・docs/・01〜06 の棚。
 # 記録（docs/_Operations-Log.md・08プロジェクト/・09アーカイブ/・.claude/記録/）は
 # 過去のパスを含むのが正しいので検査しない（ISO 9001: 記録は retained、文書は maintained）。
 # docs/SCOPE_PROGRESS.md も検査しない: 上の記録たち（墓標・status.md）から過去のパスを集めて出す

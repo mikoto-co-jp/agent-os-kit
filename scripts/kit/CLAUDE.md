@@ -12,4 +12,4 @@
 
 箱は 2 つ。**守る `rules/`（毎回読む・3 枚）／数える 記録 MCP `kiroku`（帳簿・実験・実行・追記のみ）。**過去の事例と主君の答え（`焼き先=答え／任せる` の印）は全部帳簿の行。判断に迷ったら `ledger_query` で引く（引き方は `規矩.md` 3 節）。
 
-道具は `scripts/`（箱の frontmatter＝`kiroku.py`・全体像の生成＝`build_scope_progress.py`・門＝`git-hooks/`・配布の門＝`check-distributable.sh`・他所に預けた資産の引き上げ＝`kit-ingest/`（全数の門は `gate.py`）・携帯に届く確認コードを席が読む＝`sms/read_code.sh`）。全体像は `docs/SCOPE_PROGRESS.md`（生成物。手で書かない。手順は `docs/定期便-手順/SCOPE_PROGRESSの生成.md`）。
+道具は `scripts/`（箱の frontmatter＝`kiroku.py`・全体像の生成＝`build_scope_progress.py`・門＝`git-hooks/`・配布の門＝`check-distributable.sh`・他所に預けた資産の引き上げ＝`kit-ingest/`（全数の門は `gate.py`）・携帯に届く確認コードを席が読む＝`sms/read_code.sh`）。全体像は `docs/SCOPE_PROGRESS.md`（生成物。手で書かない。**読む直前に生成器を撃って作り直す**）。

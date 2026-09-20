@@ -2,8 +2,11 @@
 # make-kit.sh — 生きている棚から「器だけ」を切り出す 1 本（AOS設置が撃つ）。
 #
 # 🔑 何を配るか: 地図（CLAUDE.md）・規則の紙 3 枚（.claude/rules/・固有値は {名前} の穴）・空の箱（.gitkeep。README を置いた 3 箱だけ .gitkeep なし）・
-#   道具（scripts/ の固定リスト・git-hooks/・kit-ingest/・sms/）・.gitignore・便の手順の雛形 2 枚。**中身は 1 行も入れない**（規矩 X-7）。
-#   docs/SCOPE_PROGRESS.md は入れない＝生成器が最初に書く（`python3 scripts/build_scope_progress.py`）。
+#   道具（scripts/ の固定リスト・git-hooks/・kit-ingest/・sms/）・.gitignore・docs/SCOPE_PROGRESS.md の芯 1 枚。**中身は 1 行も入れない**（規矩 X-7）。
+#   docs/SCOPE_PROGRESS.md は「8 節の見出しと『まだ作られていません』の 1 行」だけの芯を入れる（⛔ 空の紙にしない＝「全体像」と名乗って何も言わない紙は嘘になる）。
+#   中身は生成器が最初に撃たれたとき（`python3 scripts/build_scope_progress.py`）にまるごと書き直す。
+#   ⛔ docs/定期便-手順/ は配らない（2026-09-20 主君裁定「便という種類をやめて席に一本化する」で箱ごと畳んだ。
+#      中身＝全体像の作り方は AOS設置 §5 と 孔明の起動の手へ、走った記録の書き方は メモリシステム「記録は、どこに書くか」へ継いだ）。
 # 🔑 雛形の置き場: scripts/kit/（生きている紙から固有値・件数・日付つきの社内事故を抜いた写し）。雛形も出力に入れる（建てた棚が自分で門を撃ち、次の棚を切り出せる）。
 #   写しは腐るので **--drift** が門: 規矩の X・H（雛形は生きている紙の部分集合・番号は連番）・帳簿の列・領域 8 語・種別・層、箱の state 8 語 が
 #   生きている紙（.claude/rules/・scripts/kiroku.py）と一致しなければ exit 1。--selftest はこれも撃つ。
@@ -30,7 +33,7 @@ KIT_HOOKS="pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-com
 KIT_INGEST="verify_complete.py fetch_one.py transcribe_loop.py drive_put.py build_ledger.py manifest_add.py inventory_youtube.py verify_cards.py gate.py"
 KIT_SMS="read_code.sh"
 KIT_BOXES="00廷議 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06エージェント資産 06エージェント資産/_便 06エージェント資産/_孔明起動 07学習資産 08プロジェクト
-09アーカイブ/案件 09アーカイブ/裁定 09アーカイブ/コンテクスト銀行 10私用 11一時ファイル docs/定期便-手順"
+09アーカイブ/案件 09アーカイブ/裁定 09アーカイブ/コンテクスト銀行 10私用 11一時ファイル"
 # ==================================================================================================
 
 die() { echo "🚨 $*" >&2; exit "${2:-1}"; }
@@ -122,7 +125,7 @@ cut() {
   }
   echo "== make-kit: $ROOT → $OUT"
   local rc=0 f b
-  # 1) 雛形（地図・規則 3 枚・便の手順 2 枚）
+  # 1) 雛形（地図・規則 3 枚・全体像の芯 1 枚・箱の README 3 枚）
   for f in $(cd "$KIT" && find . -type f -not -name '.DS_Store' | sed 's#^\./##' | sort); do
     maybe_copy "scripts/kit/$f" "$f" || rc=1
     copy "scripts/kit/$f" "scripts/kit/$f"        # 雛形も配る＝建てた棚が自分で --selftest を撃て、次の棚を切り出せる
@@ -280,7 +283,7 @@ selftest() {
     [ -x "$kit/scripts/sms/$b" ] || die "selftest: 器に scripts/sms/${b} が入っていない（か実行できない）"
   done
   step "5 門の正の対照（正しい物を stage して pre-commit が通る）"
-  ( cd "$kit" && git add -- CLAUDE.md .gitignore .claude/rules/規矩.md .claude/rules/メモリシステム.md .claude/rules/主君.md docs/定期便-手順/SCOPE_PROGRESSの生成.md docs/SCOPE_PROGRESS.md 08プロジェクト/2000-01-01-検体/status.md \
+  ( cd "$kit" && git add -- CLAUDE.md .gitignore .claude/rules/規矩.md .claude/rules/メモリシステム.md .claude/rules/主君.md docs/SCOPE_PROGRESS.md 08プロジェクト/2000-01-01-検体/status.md \
       && sh scripts/git-hooks/pre-commit ) || die "selftest: 正しい物で pre-commit が落ちる（門が壊れている）"
   step "6 門の負制御 A（語彙外の state で pre-commit が落ちる）"
   mkdir -p "$kit/08プロジェクト/2000-01-02-悪い箱"

@@ -10,6 +10,7 @@
   4. 待ち受け         until が非空の箱＝箱｜何を｜誰から｜期待日（今日を過ぎていれば 🔴）
                       ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。廷議が毎朝 1 件ずつ引く・帳簿 id=475）
   5. Routine          scheduler の正本 ~/.claude/scheduler/schedules.json（--schedules <json> で差し替え可）。agent 列＝その便を走らせる席。
+                      「手順書」列＝その便を回す席の本文（06エージェント資産/_便/ のエイリアス。畳む途中の棚は docs/定期便-手順/ も見る）。
                       「実行」列＝その便が帳簿（記録 MCP kiroku の run_start／run_end）に走った記録を残したか。
                       ⚠️ Python から口は撃てる（scripts/mcplib.py・2026-09-20 実測）が、**帳簿に便ごとの実行を読む口が無い**。
                       全便が同じ席名 `scheduler` で書く決まりなので `run_last` は席単位でしか引けない（⇒ 便ごとに分けられない）。
@@ -48,7 +49,10 @@ SCHED_DIR = os.environ.get("SCHEDULER_DIR") or os.path.expanduser("~/.claude/sch
 PROJ = os.path.join(ROOT, "08プロジェクト")
 APPROVE = os.path.join(ROOT, "00廷議")
 GRAVES = os.path.join(ROOT, "09アーカイブ", "案件")
-PROCS = os.path.join(ROOT, "docs", "定期便-手順")
+# その便を回す席の本文が在るか（§5 の「手順書」列）。2026-09-20 に「便という種類をやめて席に一本化する」で
+# 正本は 06エージェント資産/_便/（{HHMM}-{便}.md のエイリアス）へ移った。docs/定期便-手順/ は畳む途中の棚のためだけに残す
+PROC_DIRS = [os.path.join(ROOT, "06エージェント資産", "_便"),
+             os.path.join(ROOT, "docs", "定期便-手順")]
 RUNS = os.path.join(ROOT, "11一時ファイル")   # 便が run_end と同時に置く tsv（7 日で消える窓。正本は帳簿）
 PROMPTS = os.path.join(ROOT, "06エージェント資産")
 PROMPT_INDEX = os.path.join(PROMPTS, "_索引-写し.md")   # ⛔ 人が書く _索引.md ではない
@@ -283,7 +287,7 @@ def load_schedules(path):
 def read_runs(runs_path):
     """便が run_end と同時に置く tsv を読む。戻り: (最後の実行 {便名: "MM-DD HH:MM 結果"}, tsv が 1 枚でも在ったか)。
 
-    列: 開始ISO<TAB>便名<TAB>結果<TAB>実行id<TAB>中身（書式は docs/定期便-手順/_実行を帳簿へ書く.md）。
+    列: 開始ISO<TAB>便名<TAB>結果<TAB>実行id<TAB>中身（書式は .claude/rules/メモリシステム.md「記録は、どこに書くか」）。
     ⚠️ 正本は帳簿（記録 MCP kiroku）。帳簿に便ごとの実行を読む口が無いので、ここはその窓を読むだけ。
     """
     paths = ([runs_path] if runs_path else sorted(glob.glob(os.path.join(RUNS, "便の実行-20??-??.tsv"))))
@@ -310,8 +314,14 @@ def read_runs(runs_path):
 
 def read_routine(sched_path, runs_path=None):
     """戻り: (rows, src)。rows = {時刻,便,機体,状態,最終発火,手順書,実行,paused,fail}"""
-    procs = {os.path.splitext(os.path.basename(p))[0]: p for p in glob.glob(os.path.join(PROCS, "*.md"))
-             if not os.path.basename(p).startswith("_")}
+    procs = {}
+    for d in PROC_DIRS:
+        for p in glob.glob(os.path.join(d, "*.md")):
+            b = os.path.basename(p)
+            if b.startswith("_"):
+                continue
+            # 席の本文は {HHMM}-{便}.md で並ぶので、頭の時刻を落として便の名前で引けるようにする
+            procs.setdefault(re.sub(r"^\d{4}-", "", os.path.splitext(b)[0]), p)
     runs, runs_found = read_runs(runs_path)
 
     def proc_for(label):
@@ -687,7 +697,7 @@ def build(args):
     L += ["", "- **最終発火**＝scheduler が起こしたか（`~/.claude/scheduler/fires.log`）。**実行**＝その便が走り終わったと"
           "帳簿（記録 MCP `kiroku` の `run_start`／`run_end`）に残したか。**起こした ≠ 走り切った**ので 2 列ある",
           "- 実行の出所は `11一時ファイル/便の実行-YYYY-MM.tsv`（便が `run_end` と同時に置く窓・7 日で消える）。"
-          "**正本は帳簿**＝手が要った率は `stocktake` で数える。書き方は `docs/定期便-手順/_実行を帳簿へ書く.md`"]
+          "**正本は帳簿**＝手が要った率は `stocktake` で数える。書き方は `.claude/rules/メモリシステム.md`「記録は、どこに書くか」"]
     if not runs_found:
         L += ["- ⚠️ **取得不能**: 窓の tsv が 1 枚も無い（まだどの便も置いていないか、7 日で消えた）。"
               "⛔ これは「走っていない」ではない。帳簿を `stocktake` で引く"]
