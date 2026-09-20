@@ -15,9 +15,12 @@
 #   bash scripts/make-kit.sh <出力先>                       出力先は空か存在しない dir。門（固有値 0 件）を通れば exit 0
 #   bash scripts/make-kit.sh --fill <棚> 名前=… 呼ばれ方=… 事業名=… 棚の名前=… 棚の置き場=… "git remote=…"
 #                                                          雛形の {名前} を埋める（冪等。無い穴は何もしない。埋めない穴は残る）
+#                                                          ⛔ 埋めるのは「その人の棚の紙」だけ。scripts/ 配下（道具自身と scripts/kit/ の雛形の写し）には触れない
+#                                                             （触れると次の切り出しと --selftest の門が固有値で落ちる＝2026-09-20 通しテスト §2-6）
 #   bash scripts/make-kit.sh --drift                        雛形と生きている紙の骨が一致するか（exit 0/1）
 #   bash scripts/make-kit.sh --numbers <道…>                 配る物が指す X-n・H-n・§n が雛形の規矩に実在するか（exit 0/1）
 #   bash scripts/make-kit.sh --selftest                     空の一時 git リポに切り出して門を全部撃つ。exit 0＝合格／1＝壊れている／3＝負制御が落ちなかった
+#                                                          ffprobe が無い機体では 4-2（引き上げの門の selftest）だけ ⏭ で飛ばす（初日に動画は無い。飛ばした事実は 1 行出す）
 #
 # ⚠️ bash 3.2（macOS 既定）は "$f（" の全角を変数名に取り込む。日本語の前の変数は必ず ${f} で囲む
 set -u
@@ -87,6 +90,8 @@ PY
 }
 
 # ---------- --fill: {名前} を埋める（冪等） ----------
+# ⛔ scripts/ 配下は埋めない: 道具のコメントに書かれた {名前} と scripts/kit/ の雛形の写しは「穴のまま」が正しい
+#   （埋めると check-distributable が固有値と数え、建てた棚の --selftest と次の切り出しが落ちる）。飛ばした事実は 1 行出す
 fill() {
   local out="$1"; shift
   [ -d "$out" ] || die "棚が無い: $out" 2
@@ -99,8 +104,11 @@ for p in pairs:
     if not k or not v: sys.exit(f"🚨 --fill の書式は キー=値: {p!r}")
     rep["{" + k + "}"] = v
 n = 0
-for d, _, fs in os.walk(out):
-    if "/.git" in d or d.endswith("/.git"): continue
+SKIP_DIRS = (".git", "scripts")
+for d, ds, fs in os.walk(out):
+    if d == out:
+        for sd in SKIP_DIRS:
+            if sd in ds: ds.remove(sd); print(f"  \u23ed {sd}/ は埋めない（{'道具と雛形の写し' if sd == 'scripts' else 'git の中身'}）")
     for f in fs:
         p = os.path.join(d, f)
         if not f.endswith((".md", ".sh", ".py", ".gitignore")) and f != ".gitignore": continue
@@ -263,9 +271,13 @@ selftest() {
   step() { echo "🔬 $*"; }
   step "1 素の切り出し"; bash "$0" "$kit" > "$t/cut.log" 2>&1 || { cat "$t/cut.log"; die "selftest: 切り出しが exit 0 にならない"; }
   step "2 drift（雛形の骨）"; bash "$0" --drift || die "selftest: 雛形が生きている紙とずれている"
-  step "3 fill（{名前} を埋める・冪等）"
+  step "3 fill（{名前} を埋める・冪等・scripts/ には触れない）"
+  ( cd "$kit" && find scripts -type f -exec shasum {} + | sort ) > "$t/scripts.before"
   bash "$0" --fill "$kit" 名前=検体 呼ばれ方=主君 事業名=検体商店 棚の名前=検体の棚 棚の置き場="$kit" "git remote=検体remote" > /dev/null || die "selftest: fill が落ちた"
-  grep -rlE '\{(名前|呼ばれ方|事業名|棚の名前|棚の置き場|git remote)\}' "$kit" --include='*.md' && die "selftest: fill の後に穴が残った"
+  grep -rlE '\{(名前|呼ばれ方|事業名|棚の名前|棚の置き場|git remote)\}' "$kit" --include='*.md' --exclude-dir=scripts && die "selftest: fill の後に穴が残った"
+  grep -qrl '{名前}' "$kit/scripts/kit/.claude/rules" || die "selftest: fill が scripts/kit/ の雛形の写しまで埋めた（次の切り出しが固有値で落ちる）"
+  ( cd "$kit" && find scripts -type f -exec shasum {} + | sort ) > "$t/scripts.after"
+  cmp -s "$t/scripts.before" "$t/scripts.after" || { diff "$t/scripts.before" "$t/scripts.after"; die "selftest: fill が scripts/ 配下（道具）を書き換えた"; }
   bash "$0" --fill "$kit" 名前=検体 > /dev/null || die "selftest: fill を 2 回撃つと落ちる（冪等でない）"
   step "4 空の git リポで道具が走る"
   ( cd "$kit" && git init -q && git config core.hooksPath scripts/git-hooks ) || die "selftest: git init"
@@ -275,7 +287,12 @@ selftest() {
   ( cd "$kit" && python3 scripts/kiroku.py box --slug 2000-01-01-検体 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: kiroku.py box が落ちた"
   ( cd "$kit" && python3 scripts/kiroku.py --check 08プロジェクト > /dev/null ) || die "selftest: kiroku.py --check が正しい箱で落ちる"
   step "4-2 引き上げの門が器の中で走る（負制御こみ）"
-  ( cd "$kit" && python3 scripts/kit-ingest/gate.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/gate.py --selftest が exit 0 にならない" 3
+  # 🔑 gate.py --selftest は検体の音声の尺を ffprobe で測る。素の Mac には無い＝初日に動画は無いので、この段だけ ⏭（黙って飛ばさない・道具が器に在ることは下で見る）
+  if command -v ffprobe > /dev/null 2>&1; then
+    ( cd "$kit" && python3 scripts/kit-ingest/gate.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/gate.py --selftest が exit 0 にならない" 3
+  else
+    echo "⏭ ffprobe 無し: 引き上げの門の selftest（gate.py --selftest）は飛ばした。動画を引き上げる日までに ffmpeg を入れれば撃てる"
+  fi
   for b in $KIT_INGEST; do
     [ -f "$kit/scripts/kit-ingest/$b" ] || die "selftest: 器に scripts/kit-ingest/${b} が入っていない"
   done
