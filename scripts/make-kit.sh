@@ -1,8 +1,8 @@
 #!/bin/bash
-# make-kit.sh — 生きている棚から「器だけ」を切り出す 1 本（初期セットアップ席が撃つ）。
+# make-kit.sh — 生きている棚から「器だけ」を切り出す 1 本（AOS設置が撃つ）。
 #
-# 🔑 何を配るか: 地図（CLAUDE.md）・規則の紙 3 枚（.claude/rules/・固有値は {名前} の穴）・空の箱（.gitkeep）・
-#   道具（scripts/ の固定リストと git-hooks/）・.gitignore・便の手順の雛形 1 枚。**中身は 1 行も入れない**（規矩 X-7）。
+# 🔑 何を配るか: 地図（CLAUDE.md）・規則の紙 3 枚（.claude/rules/・固有値は {名前} の穴）・空の箱（.gitkeep。README を置いた 3 箱だけ .gitkeep なし）・
+#   道具（scripts/ の固定リスト・git-hooks/・kit-ingest/・sms/）・.gitignore・便の手順の雛形 2 枚。**中身は 1 行も入れない**（規矩 X-7）。
 #   docs/SCOPE_PROGRESS.md は入れない＝生成器が最初に書く（`python3 scripts/build_scope_progress.py`）。
 # 🔑 雛形の置き場: scripts/kit/（生きている紙から固有値・件数・日付つきの社内事故を抜いた写し）。雛形も出力に入れる（建てた棚が自分で門を撃ち、次の棚を切り出せる）。
 #   写しは腐るので **--drift** が門: 規矩の X・H（雛形は生きている紙の部分集合・番号は連番）・帳簿の列・領域 8 語・種別・層、箱の state 8 語 が
@@ -13,6 +13,7 @@
 #   bash scripts/make-kit.sh --fill <棚> 名前=… 呼ばれ方=… 事業名=… 棚の名前=… 棚の置き場=… "git remote=…"
 #                                                          雛形の {名前} を埋める（冪等。無い穴は何もしない。埋めない穴は残る）
 #   bash scripts/make-kit.sh --drift                        雛形と生きている紙の骨が一致するか（exit 0/1）
+#   bash scripts/make-kit.sh --numbers <道…>                 配る物が指す X-n・H-n・§n が雛形の規矩に実在するか（exit 0/1）
 #   bash scripts/make-kit.sh --selftest                     空の一時 git リポに切り出して門を全部撃つ。exit 0＝合格／1＝壊れている／3＝負制御が落ちなかった
 #
 # ⚠️ bash 3.2（macOS 既定）は "$f（" の全角を変数名に取り込む。日本語の前の変数は必ず ${f} で囲む
@@ -23,10 +24,13 @@ GATE="$ROOT/scripts/check-distributable.sh"
 
 # ============================== 配る物（固定リスト。`scripts/*` を舐めない）==============================
 # 当社固有の生成器（course/・register/・経理/・mirror_*.py・build_distribution_ledgers.py ほか）は入れない。足すならここに 1 行
-KIT_TOOLS="kiroku.py build_scope_progress.py check-distributable.sh make-kit.sh"
+KIT_TOOLS="kiroku.py build_scope_progress.py build_agent_aliases.py check-distributable.sh make-kit.sh"
 KIT_HOOKS="pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-commit-box.sh"
-KIT_BOXES="00廷議 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06エージェント資産 07学習資産 08プロジェクト
-09アーカイブ/案件 09アーカイブ/裁定 09アーカイブ/カード 10私用 11一時ファイル docs/定期便-手順 docs/定期便-ログ"
+# 資産の引き上げ席が呼ぶ道具（下の 2 行で合わせて 10 本＝kit-ingest 9 ＋ sms 1。無いとその席は配っても最初の門で止まる）
+KIT_INGEST="verify_complete.py fetch_one.py transcribe_loop.py drive_put.py build_ledger.py manifest_add.py inventory_youtube.py verify_cards.py gate.py"
+KIT_SMS="read_code.sh"
+KIT_BOXES="00廷議 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06エージェント資産 06エージェント資産/_便 06エージェント資産/_孔明起動 07学習資産 08プロジェクト
+09アーカイブ/案件 09アーカイブ/裁定 09アーカイブ/コンテクスト銀行 10私用 11一時ファイル docs/定期便-手順"
 # ==================================================================================================
 
 die() { echo "🚨 $*" >&2; exit "${2:-1}"; }
@@ -118,7 +122,7 @@ cut() {
   }
   echo "== make-kit: $ROOT → $OUT"
   local rc=0 f b
-  # 1) 雛形（地図・規則 3 枚・便の手順 1 枚）
+  # 1) 雛形（地図・規則 3 枚・便の手順 2 枚）
   for f in $(cd "$KIT" && find . -type f -not -name '.DS_Store' | sed 's#^\./##' | sort); do
     maybe_copy "scripts/kit/$f" "$f" || rc=1
     copy "scripts/kit/$f" "scripts/kit/$f"        # 雛形も配る＝建てた棚が自分で --selftest を撃て、次の棚を切り出せる
@@ -132,6 +136,14 @@ cut() {
     [ -f "scripts/git-hooks/$b" ] || { echo "  🚨 scripts/git-hooks/${b} が無い"; rc=1; continue; }
     maybe_copy "scripts/git-hooks/$b" "scripts/git-hooks/$b" || rc=1
   done
+  for b in $KIT_INGEST; do
+    [ -f "scripts/kit-ingest/$b" ] || { echo "  🚨 scripts/kit-ingest/${b} が無い（リストと現物がずれている）"; rc=1; continue; }
+    maybe_copy "scripts/kit-ingest/$b" "scripts/kit-ingest/$b" || rc=1
+  done
+  for b in $KIT_SMS; do
+    [ -f "scripts/sms/$b" ] || { echo "  🚨 scripts/sms/${b} が無い（リストと現物がずれている）"; rc=1; continue; }
+    maybe_copy "scripts/sms/$b" "scripts/sms/$b" || rc=1
+  done
   # pre-commit の親は書き下ろす（生きている方は当社固有の門を 1 本余分に撃つため）
   cat > "$OUT/scripts/git-hooks/pre-commit" <<'SH'
 #!/bin/sh
@@ -142,7 +154,7 @@ D=$(dirname "$0"); FAIL=0
 for h in pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-commit-box.sh; do sh "$D/$h" || FAIL=1; done
 exit $FAIL
 SH
-  chmod +x "$OUT"/scripts/git-hooks/* "$OUT"/scripts/*.sh; echo "  + scripts/git-hooks/pre-commit（書き下ろし）"
+  chmod +x "$OUT"/scripts/git-hooks/* "$OUT"/scripts/*.sh "$OUT"/scripts/sms/*.sh; echo "  + scripts/git-hooks/pre-commit（書き下ろし）"
   # 3) .gitignore
   cat > "$OUT/.gitignore" <<'GI'
 # 見せない物。ここに置いた物は git に載らない
@@ -160,9 +172,14 @@ __pycache__/
 GI
   echo "  + .gitignore"
   # 4) 空の箱
-  for b in $KIT_BOXES; do mkdir -p "$OUT/$b"; : > "$OUT/$b/.gitkeep"; echo "  + ${b}/.gitkeep"; done
-  # 5) 運用ログの見出しだけ（1 行目は初期セットアップ席が「棚を建てた日と 3 問の答え」を書く）
-  printf '# 運用ログ（運用の変更を 1 行ずつ・新しい行は末尾）\n\n' > "$OUT/docs/_Operations-Log.md"; echo "  + docs/_Operations-Log.md（見出しだけ）"
+  # 雛形が README を置いた箱（06エージェント資産 とその下の 2 箱）は README が git に載せる ⇒ .gitkeep を足さない
+  for b in $KIT_BOXES; do
+    mkdir -p "$OUT/$b"
+    if [ -n "$(ls -A "$OUT/$b" 2>/dev/null)" ]; then echo "  = ${b}/（README 在り・.gitkeep なし）"
+    else : > "$OUT/$b/.gitkeep"; echo "  + ${b}/.gitkeep"; fi
+  done
+  # 5) ⛔ 運用ログ（docs/_Operations-Log.md）は配らない（2026-09-20 主君裁定）。
+  #   同じ物を帳簿が持てる（領域＝棚・種別＝判定）。紙は書く人が居なくなると止まり、止まったことに誰も気づかない。
   # 門: 出力の全ファイルに固有値の検査を当てる
   echo "== 門: check-distributable（出力の全ファイル）"
   local files; files=$(find "$OUT" -type f -not -name '.gitkeep' | sort)
@@ -170,6 +187,70 @@ GI
   bash "$GATE" $files || rc=1
   [ $rc = 0 ] && echo "✅ 器は配れる（固有値 0 件・落とした物 0）" || echo "🚨 配れない（上の 🚨／❌ を直す）"
   return $rc
+}
+
+# ---------- --numbers: 配る物が指す番号が雛形の規矩に実在するか ----------
+# 🔑 --drift は「雛形 ⊆ 生きている紙」しか見ない ⇒ 主君が器から行を落として番号を振り直した後、
+#   生きている側の番号で書いた配る紙は、会員の棚では別の行を指す（2026-09-20 に 8 箇所で実際に起きた）。
+numbers() {
+  [ $# -gt 0 ] || die "--numbers <道…>（ファイルか dir）" 2
+  python3 - "$KIT/.claude/rules/規矩.md" "$@" <<'PY'
+import os, re, sys
+tmpl, targets = sys.argv[1], sys.argv[2:]
+ID_RE   = re.compile(r"^\|\s*[*`]*\s*([XH]-\d+'?)\s*[*`]*\s*\|")
+HEAD_RE = re.compile(r"^#{1,6}\s+(.*)$")
+NUM_RE  = re.compile(r"§?\s?(\d+(?:-[0-9A-Za-z]+)?)")
+REF_ID  = re.compile(r"(?<![0-9A-Za-z])([XH]-\d+'?)")
+REF_SEC = re.compile(r"§\s?(\d+(?:-[0-9A-Za-z]+)?)")
+def parents(n): return {n, n.split("-")[0]} if "-" in n else {n}
+def anchors(lines, heads_only):
+    ids, secs = set(), set()
+    for l in lines:
+        m = HEAD_RE.match(l)
+        if m:
+            for n in NUM_RE.findall(m.group(1)): secs |= parents(n)
+        if not heads_only:
+            m = ID_RE.match(l)
+            if m: ids.add(m.group(1))
+    return ids, secs
+def read(p): return open(p, encoding="utf-8").read().splitlines()
+t_ids, t_secs = anchors(read(tmpl), False)
+if not t_ids or not t_secs:
+    print(f"🚨 雛形の規矩から番号を拾えなかった: {tmpl}"); sys.exit(1)
+# 🔑 README は「器に無い番号」を名前で挙げる説明文なので、検査すると必ず誤検出になる。
+#   ⛔ 撃ち方を紙に書くだけでは守られない（次に撃つ席が README を読まずに *.md と撃つ）⇒ 機械で飛ばす。
+#   飛ばした事実は必ず 1 行出す（黙って飛ばさない）。飛ばした結果 0 本になったら落ちる（何も検査しないのを成功と呼ばせない）。
+SKIP = ("README.md",)
+files, skipped = [], []
+for t in targets:
+    if os.path.isdir(t):
+        for d, _, fs in os.walk(t):
+            if "/.git" in d or d.endswith("/.git"): continue
+            for f in fs:
+                if not f.endswith(".md"): continue
+                (skipped if f in SKIP else files).append(os.path.join(d, f))
+    elif t.endswith(".md"):
+        (skipped if os.path.basename(t) in SKIP else files).append(t)
+files.sort()
+for q in sorted(skipped):
+    print(f"\u23ed {q}: README は説明文（器に無い番号を名前で挙げる紙）なので検査しない")
+if not files:
+    print("\U0001f6a8 番号: 検査する紙が 0 本だった（README だけを渡していないか）"); sys.exit(1)
+bad = 0
+for p in files:
+    lines = read(p)
+    _, own = anchors(lines, True)   # § は自分の節への参照にも使われる ⇒ 自分の見出しでも解決してよい
+    for i, l in enumerate(lines, 1):
+        for r in REF_ID.findall(l):
+            if r not in t_ids:
+                bad += 1; print(f"❌ {p}:{i}: 規矩 {r} は器の雛形に無い（雛形に在るのは {' '.join(sorted(t_ids))}）")
+        for r in REF_SEC.findall(l):
+            if r not in t_secs and r not in own:
+                bad += 1; print(f"❌ {p}:{i}: §{r} はこの紙にも器の雛形の規矩にも無い")
+print(f"✅ 番号: 配る物 {len(files)} 本が指す X-n・H-n・§n は全部、器の雛形の側に在る" if bad == 0
+      else f"🚨 番号: {bad} 箇所が雛形に無い行を指している（配ると会員の棚で別の行を指す）")
+sys.exit(1 if bad else 0)
+PY
 }
 
 # ---------- --selftest ----------
@@ -188,8 +269,16 @@ selftest() {
   mkdir -p "$t/sched"
   ( cd "$kit" && SCHEDULER_DIR="$t/sched" python3 scripts/build_scope_progress.py 2> "$t/gen.err" ) || { cat "$t/gen.err"; die "selftest: build_scope_progress.py が落ちた"; }
   [ -s "$kit/docs/SCOPE_PROGRESS.md" ] || die "selftest: docs/SCOPE_PROGRESS.md が書かれていない"
-  ( cd "$kit" && python3 scripts/kiroku.py box --slug 2000-01-01-検体 --title 検体 --state 起案 --owner 初期セットアップ席 --absorb なし > /dev/null ) || die "selftest: kiroku.py box が落ちた"
+  ( cd "$kit" && python3 scripts/kiroku.py box --slug 2000-01-01-検体 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: kiroku.py box が落ちた"
   ( cd "$kit" && python3 scripts/kiroku.py --check 08プロジェクト > /dev/null ) || die "selftest: kiroku.py --check が正しい箱で落ちる"
+  step "4-2 引き上げの門が器の中で走る（負制御こみ）"
+  ( cd "$kit" && python3 scripts/kit-ingest/gate.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/gate.py --selftest が exit 0 にならない" 3
+  for b in $KIT_INGEST; do
+    [ -f "$kit/scripts/kit-ingest/$b" ] || die "selftest: 器に scripts/kit-ingest/${b} が入っていない"
+  done
+  for b in $KIT_SMS; do
+    [ -x "$kit/scripts/sms/$b" ] || die "selftest: 器に scripts/sms/${b} が入っていない（か実行できない）"
+  done
   step "5 門の正の対照（正しい物を stage して pre-commit が通る）"
   ( cd "$kit" && git add -- CLAUDE.md .gitignore .claude/rules/規矩.md .claude/rules/メモリシステム.md .claude/rules/主君.md docs/定期便-手順/SCOPE_PROGRESSの生成.md docs/SCOPE_PROGRESS.md 08プロジェクト/2000-01-01-検体/status.md \
       && sh scripts/git-hooks/pre-commit ) || die "selftest: 正しい物で pre-commit が落ちる（門が壊れている）"
@@ -205,15 +294,39 @@ selftest() {
   if bash "$GATE" "$kit/CLAUDE.md" > /dev/null 2>&1; then
     echo "🚨 selftest: 固有値を入れたのに門が通った（門が死んでいる）"; rm -rf "$t"; exit 3
   fi
+  step "8 配る物の番号が雛形の規矩に実在する（負制御こみ）"
+  numbers "$kit" || die "selftest: 器の中の紙が、雛形の規矩に無い番号を指している"
+  mkdir -p "$t/nc"
+  printf -- '# 負制御\n\n⛔ X-99 と §98-7 を見よ（雛形に無い番号）\n' > "$t/nc/負制御.md"
+  if numbers "$t/nc" > /dev/null 2>&1; then
+    echo "🚨 selftest: 雛形に無い番号（X-99・§98-7）を入れたのに番号の門が通った（門が死んでいる）"; rm -rf "$t"; exit 3
+  fi
+  # 負制御 D: README を飛ばすようにしたせいで、同じ箱の本物の紙のずれを見逃していないか
+  mkdir -p "$t/nc2"
+  printf -- '# 説明\n\nこの紙は X-99 が器に無いことを説明している\n' > "$t/nc2/README.md"
+  printf -- '# 配る紙\n\n⛔ X-99 を見よ\n' > "$t/nc2/配る紙.md"
+  # ⛔ 「落ちたか」だけを見てはいけない——README ごと全部飛ばして 0 本になっても落ちるので、区別がつかない。
+  #   ⇒ 本物の紙の名前と番号が出力に出ていることを確かめる（🪤 2026-09-20 に実際にこれで素通りした）
+  local d_out; d_out=$(numbers "$t/nc2" 2>&1)
+  if ! printf '%s' "${d_out}" | grep -q '配る紙\.md:.*X-99'; then
+    echo "🚨 selftest: README を飛ばしたせいで、同じ箱の本物の紙の X-99 を見逃した"; echo "${d_out}"; rm -rf "$t"; exit 3
+  fi
+  # 負制御 E: README しか渡されなければ「0 本を検査して合格」にしない
+  mkdir -p "$t/nc3"
+  printf -- '# 説明\n\nX-99 の話\n' > "$t/nc3/README.md"
+  if numbers "$t/nc3" > /dev/null 2>&1; then
+    echo "🚨 selftest: README だけを渡したのに合格した（0 本を検査して通っている）"; rm -rf "$t"; exit 3
+  fi
   rm -rf "$t"
-  echo "✅ selftest: 切り出し・drift・fill・生成器・kiroku・正の対照・負制御 A/B が全部通った"
+  echo "✅ selftest: 切り出し・drift・fill・生成器・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）が全部通った"
   exit 0
 }
 
 case "${1:-}" in
   --selftest) selftest ;;
   --drift) drift ;;
+  --numbers) shift; numbers "$@" ;;
   --fill) shift; fill "$@" ;;
-  "") sed -n '2,20p' "$0"; exit 2 ;;
+  "") sed -n '2,19p' "$0"; exit 2 ;;
   *) cut "$1" ;;
 esac

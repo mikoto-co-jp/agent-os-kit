@@ -9,8 +9,14 @@
   3. 主君の手         lever が非空の箱＝箱｜何を｜何秒｜閉じると何が動くか
   4. 待ち受け         until が非空の箱＝箱｜何を｜誰から｜期待日（今日を過ぎていれば 🔴）
                       ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。廷議が毎朝 1 件ずつ引く・帳簿 id=475）
-  5. Routine          scheduler の正本 ~/.claude/scheduler/schedules.json（--schedules <json> で差し替え可）。agent 列＝その便を走らせる席
-  6. エージェント（席） 06エージェント資産/プロンプト資産/_索引.md の箱ごとの体数 ＋ --monsters <json>（list_monsters の結果）
+  5. Routine          scheduler の正本 ~/.claude/scheduler/schedules.json（--schedules <json> で差し替え可）。agent 列＝その便を走らせる席。
+                      「実行」列＝その便が帳簿（記録 MCP kiroku の run_start／run_end）に走った記録を残したか。
+                      ⚠️ Python から口は撃てる（scripts/mcplib.py・2026-09-20 実測）が、**帳簿に便ごとの実行を読む口が無い**。
+                      全便が同じ席名 `scheduler` で書く決まりなので `run_last` は席単位でしか引けない（⇒ 便ごとに分けられない）。
+                      ⇒ 便が run_end と同時に置く 11一時ファイル/便の実行-YYYY-MM.tsv を読む（--runs で差し替え可）。
+                      口の不足は 00廷議/2026-09-20-棚-道具が時計と帳簿に自分で聞けない.md で起票済み。
+                      正本は帳簿・この tsv は 7 日で消える窓。tsv が無ければ全便「取得不能（tsv なし）」と出す（0 件とは書かない）
+  6. エージェント（席） 06エージェント資産/_索引-写し.md の箱ごとの体数 ＋ --monsters <json>（list_monsters の結果）
   7. 完了（30 日）    09アーカイブ/案件/*.md の墓標
   8. 棚の差分         数だけ（08プロジェクト・00廷議・一段目のみ。深い走査はしない）
 
@@ -43,9 +49,9 @@ PROJ = os.path.join(ROOT, "08プロジェクト")
 APPROVE = os.path.join(ROOT, "00廷議")
 GRAVES = os.path.join(ROOT, "09アーカイブ", "案件")
 PROCS = os.path.join(ROOT, "docs", "定期便-手順")
-LOGS = os.path.join(ROOT, "docs", "定期便-ログ")
-PROMPTS = os.path.join(ROOT, "06エージェント資産", "プロンプト資産")
-PROMPT_INDEX = os.path.join(PROMPTS, "_索引.md")
+RUNS = os.path.join(ROOT, "11一時ファイル")   # 便が run_end と同時に置く tsv（7 日で消える窓。正本は帳簿）
+PROMPTS = os.path.join(ROOT, "06エージェント資産")
+PROMPT_INDEX = os.path.join(PROMPTS, "_索引-写し.md")   # ⛔ 人が書く _索引.md ではない
 SKILL_INDEX = os.path.join(PROMPTS, "06二軍エージェント", "_索引-スキル.md")
 DONE_DAYS = 30
 BIG_BYTES = 5 * 1024 * 1024
@@ -274,20 +280,51 @@ def load_schedules(path):
     return data, src
 
 
-def read_routine(sched_path):
-    """戻り: (rows, note, src)。rows = {時刻,便,機体,状態,最終発火,手順書,ログ,paused,fail}"""
-    procs = {os.path.splitext(os.path.basename(p))[0]: p for p in glob.glob(os.path.join(PROCS, "*.md"))}
-    loglines = []
-    for p in sorted(glob.glob(os.path.join(LOGS, "20??-??.md"))):
+def read_runs(runs_path):
+    """便が run_end と同時に置く tsv を読む。戻り: (最後の実行 {便名: "MM-DD HH:MM 結果"}, tsv が 1 枚でも在ったか)。
+
+    列: 開始ISO<TAB>便名<TAB>結果<TAB>実行id<TAB>中身（書式は docs/定期便-手順/_実行を帳簿へ書く.md）。
+    ⚠️ 正本は帳簿（記録 MCP kiroku）。帳簿に便ごとの実行を読む口が無いので、ここはその窓を読むだけ。
+    """
+    paths = ([runs_path] if runs_path else sorted(glob.glob(os.path.join(RUNS, "便の実行-20??-??.tsv"))))
+    last, found = {}, False
+    for p in paths:
+        if not os.path.exists(p):
+            continue
+        found = True
         with open(p, encoding="utf-8") as f:
-            loglines += [l.strip() for l in f if l.strip() and not l.startswith("#")]
+            for line in f:
+                c = line.rstrip("\n").split("\t")
+                if len(c) < 3 or not c[0].strip():
+                    continue
+                ts, name, kekka = c[0].strip(), c[1].strip(), c[2].strip()
+                try:
+                    ts = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%m-%d %H:%M")
+                except ValueError:
+                    pass
+                prev = last.get(name)
+                if prev is None or ts >= prev[0]:
+                    last[name] = (ts, kekka)
+    return {k: (v[0] + (" " + v[1] if v[1] else "")).strip() for k, v in last.items()}, found
+
+
+def read_routine(sched_path, runs_path=None):
+    """戻り: (rows, src)。rows = {時刻,便,機体,状態,最終発火,手順書,実行,paused,fail}"""
+    procs = {os.path.splitext(os.path.basename(p))[0]: p for p in glob.glob(os.path.join(PROCS, "*.md"))
+             if not os.path.basename(p).startswith("_")}
+    runs, runs_found = read_runs(runs_path)
 
     def proc_for(label):
         hits = [n for n in procs if n and n in label]
         return max(hits, key=len) if hits else None
 
-    def has_log(name):
-        return bool(name) and any(name in l.split("｜", 1)[0] for l in loglines)
+    def run_of(name, label):
+        if not runs_found:
+            return "取得不能（tsv なし）"
+        for k in (name, label):
+            if k and k in runs:
+                return runs[k]
+        return "なし"
 
     schedules, src = load_schedules(sched_path)
     rows = []
@@ -317,17 +354,17 @@ def read_routine(sched_path):
                          "状態": "**止**" if s.get("paused") else "稼働",
                          "最終発火": (ts + (" " + result if result else "")).strip() or "—",
                          "手順書": "あり" if name else "なし",
-                         "ログ": "あり" if has_log(name) else "なし",
+                         "実行": run_of(name, label),
                          "paused": bool(s.get("paused")),
                          "fail": result not in ("", "spawned", "ok")})
     rows.sort(key=lambda r: (r["paused"], r["時刻"]))
-    return rows, src
+    return rows, src, runs_found
 
 
 # ---------- 6. エージェント（席） ----------
 
 def read_prompt_boxes():
-    """06エージェント資産/プロンプト資産/_索引.md の「## 箱ごとの体数」を読む。無ければ棚を直に数える。"""
+    """06エージェント資産/_索引-写し.md の「## 箱ごとの体数」を読む。無ければ棚を直に数える。"""
     boxes = []
     if os.path.exists(PROMPT_INDEX):
         with open(PROMPT_INDEX, encoding="utf-8") as f:
@@ -345,7 +382,7 @@ def read_prompt_boxes():
     if not boxes and os.path.isdir(PROMPTS):
         for d in sorted(os.listdir(PROMPTS)):
             fp = os.path.join(PROMPTS, d)
-            if os.path.isdir(fp):
+            if os.path.isdir(fp) and re.match(r"^0[0-7]", d):   # 箱だけ。_便/ _孔明起動/ は数えない
                 boxes.append({"箱": d,
                               "体数": len([x for x in os.listdir(fp) if x.endswith(".md")
                                           and not x.startswith("_")])})
@@ -567,7 +604,7 @@ def build(args):
     levers = read_levers(projects)
     untils = read_untils(projects)
     resumes = read_resumes()
-    routine, sched_src = read_routine(args.schedules)
+    routine, sched_src, runs_found = read_routine(args.schedules, getattr(args, "runs", None))
     seats, skills, seats_foot = read_seats(load_schedules(args.schedules)[0], args.monsters)
     done = read_done()
     shelf = read_shelf(no_status)
@@ -575,7 +612,8 @@ def build(args):
     n = {s: sum(1 for r in projects if r["state"] == s) for s in list(STATES) + ["語彙外", "状態なし"]}
     longest = max([r["age"] for r in items] or [0])
     fail = sum(1 for r in routine if r["fail"])
-    nolog = sum(1 for r in routine if not r["paused"] and r["ログ"] == "なし")
+    norun = (sum(1 for r in routine if not r["paused"] and r["実行"] == "なし")
+             if runs_found else "取得不能（窓の tsv なし）")
     seat_total = sum(r["体数"] for r in seats if r["箱"] != "スキル（未登録）")
     seat_run = ("未取得" if any(r["稼働中"] == "（未取得）" for r in seats)
                 else sum(int(r["稼働中"]) for r in seats if str(r["稼働中"]).isdigit()))
@@ -589,7 +627,7 @@ def build(args):
          + f"・語彙外 {n['語彙外']}・状態なし {n['状態なし']}）／凍結 {len(frozen)}"
          f"／裁定待ち {len(items)} 件（最長 {longest} 日・差し戻し {len(sent_back)}）"
          f"／主君の手 {len(levers)}／待ち受け {len(untils)}（🔴 {late}）／再開の合図 {len(resumes)}"
-         f"／便 {len(routine)} 本（fail {fail}・ログ未記録 {nolog}）"
+         f"／便 {len(routine)} 本（fail {fail}・実行未記録 {norun}）"
          f"／席 {seat_total} 体（稼働 {seat_run}）／完了 {len(done)}（{DONE_DAYS} 日）",
          "",
          "## 1. プロジェクト（08プロジェクト/ の箱・state 別）", ""]
@@ -640,19 +678,26 @@ def build(args):
                 for r in resumes])
 
     L += ["", "## 5. Routine（scheduler の全機体）", ""]
-    L += table("| 時刻 | 便 | agent | 機体 | 状態 | 最終発火 | 手順書 | ログ |",
+    L += table("| 時刻 | 便 | agent | 機体 | 状態 | 最終発火 | 手順書 | 実行 |",
                [f"| {r['時刻']} | {cell(r['便'], 60)} | {cell(r.get('agent'), 20) or '—'} | "
                 f"{r['機体']} | {r['状態']} | "
-                f"{r['最終発火']} | {r['手順書']} | {r['ログ']} |" for r in routine])
+                f"{r['最終発火']} | {r['手順書']} | {r['実行']} |" for r in routine])
     if not any(r["機体"] != "B" for r in routine):
         L += ["", "（ami: 3 本・生成器が読めない）"]
+    L += ["", "- **最終発火**＝scheduler が起こしたか（`~/.claude/scheduler/fires.log`）。**実行**＝その便が走り終わったと"
+          "帳簿（記録 MCP `kiroku` の `run_start`／`run_end`）に残したか。**起こした ≠ 走り切った**ので 2 列ある",
+          "- 実行の出所は `11一時ファイル/便の実行-YYYY-MM.tsv`（便が `run_end` と同時に置く窓・7 日で消える）。"
+          "**正本は帳簿**＝手が要った率は `stocktake` で数える。書き方は `docs/定期便-手順/_実行を帳簿へ書く.md`"]
+    if not runs_found:
+        L += ["- ⚠️ **取得不能**: 窓の tsv が 1 枚も無い（まだどの便も置いていないか、7 日で消えた）。"
+              "⛔ これは「走っていない」ではない。帳簿を `stocktake` で引く"]
 
     L += ["", "## 6. エージェント（席）", ""]
     L += table("| 席 | 箱 | 体数 | 稼働中 | cwd | 最終発火 |",
                [f"| {cell(r['席'], 60)} | {r['箱']} | {r['体数']} | {r['稼働中']} | "
                 f"{cell(r['cwd'], 60)} | {r['最終発火']} |" for r in seats])
     L += [""] + seats_foot
-    L += ["", "（正本: BlueLamp の DB。写しは 06エージェント資産/プロンプト資産/ ＝ git に載る）"]
+    L += ["", "（正本: BlueLamp の DB。写しは 06エージェント資産/<箱>/ ＝ git に載る）"]
 
     L += ["", f"## 7. 完了（{DONE_DAYS} 日・墓標から）", ""]
     L += table("| 閉じた日 | プロジェクト | absorb 先 | 墓標 |",
@@ -669,7 +714,7 @@ def build(args):
     L.append("")
     summary = (f"箱 {len(projects)}（状態なし {n['状態なし']}・語彙外 {n['語彙外']}・凍結 {len(frozen)}）"
                f" / 裁定 {len(items)} / 差し戻し {len(sent_back)} / 主君の手 {len(levers)} / 待ち受け {len(untils)}（🔴 {late}）"
-               f" / 便 {len(routine)}（fail {fail}・ログ未記録 {nolog}・src {sched_src}）"
+               f" / 便 {len(routine)}（fail {fail}・実行未記録 {norun}・src {sched_src}）"
                f" / 席 {seat_total}（稼働 {seat_run}・スキル {skills}）"
                f" / 完了 {len(done)}")
     return L, summary
@@ -716,6 +761,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--schedules", help="scheduler の一覧 JSON（schedule_list の結果）")
     ap.add_argument("--monsters", help="monster の一覧 JSON（list_monsters の結果）。無ければ「（未取得）」")
+    ap.add_argument("--runs", help="便の実行の窓 tsv（既定: 11一時ファイル/便の実行-YYYY-MM.tsv を全部）")
     ap.add_argument("--out", default=OUT_DEFAULT)
     ap.add_argument("--check", action="store_true", help="自己一致（語彙・全箱・§1〜§4 の一致）。exit 0/1・書かない")
     args = ap.parse_args()
