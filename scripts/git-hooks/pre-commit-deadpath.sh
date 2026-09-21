@@ -15,8 +15,11 @@ git -c core.quotepath=false diff --cached --name-only --diff-filter=ACM -- '*.md
  | while read -r f; do
   git show ":$f" | grep -oE '`(\.claude|docs|0[1-7][^`/ ]*|scripts|10私用|11一時ファイル)/[^`]+`' | tr -d '`' | sort -u | while read -r p; do
     case "$p" in *'*'*|*'<'*|*'…'*|*'['*|*'{'*|*'YYYY'*|*'NNN'*) continue;; esac   # glob・placeholder は飛ばす
+    # 旗（空白の後の -…）は道でない。全角括弧「（」はファイル名の字にも注釈の頭にもなるので、
+    # まず書かれたままで測り、無ければ注釈を落として測り直す（2026-09-21・帳簿 id=1284。誤検知 3 件で --no-verify が撃たれた）
+    p=$(printf '%s' "$p" | sed 's/ -.*//')
     q=$(printf '%s' "$p" | sed 's/[（(].*//; s/ の .*//; s/#.*//; s/[、。].*//')
-    [ -e "$ROOT/$q" ] || echo "❌ $f → 実在しない: $q" >&2; [ -e "$ROOT/$q" ] || echo 1 >> "$T"
+    [ -e "$ROOT/$p" ] || [ -e "$ROOT/$q" ] || { echo "❌ $f → 実在しない: $p" >&2; echo 1 >> "$T"; }
   done
 done
 if [ -s "$T" ]; then rm -f "$T"; echo "↑ 指す前に測る。直すか、パスでない物なら \` \` を外す。強行は --no-verify" >&2; exit 1; fi

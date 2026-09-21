@@ -6,6 +6,8 @@
   1. プロジェクト     08プロジェクト/*/status.md を state 別（起案／裁定待ち／実行中／外部待ち／確認待ち／完了）の表＝箱｜owner｜next｜updated。
                       status.md の無い箱・語彙外の state は赤。09アーカイブ/案件/ の凍結箱は末尾に一覧
   2. 裁定表           00廷議/*.md（7 項目）の全数 ＋ 各箱の ask（問い｜選択肢｜推奨｜決めないと）。束ねない。推奨なしは差し戻し
+                      ＋ 定点の窓口（DESKS の status.md）の ask も同じ書式で載せる（08プロジェクト/ の外に居る終わりの無い箱。
+                      2026-09-21 主君裁定 ③C・00廷議/2026-09-19-棚-答えが返っていない問いの全数.md §4-3）
   3. 主君の手         lever が非空の箱＝箱｜何を｜何秒｜閉じると何が動くか
   4. 待ち受け         until が非空の箱＝箱｜何を｜誰から｜期待日（今日を過ぎていれば 🔴）
                       ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。廷議が毎朝 1 件ずつ引く・帳簿 id=475）
@@ -48,6 +50,8 @@ OUT_DEFAULT = os.path.join(ROOT, "docs", "SCOPE_PROGRESS.md")
 SCHED_DIR = os.environ.get("SCHEDULER_DIR") or os.path.expanduser("~/.claude/scheduler")
 PROJ = os.path.join(ROOT, "08プロジェクト")
 APPROVE = os.path.join(ROOT, "00廷議")
+# 定点の窓口＝終わりの無い箱。08プロジェクト/ には置かないが、status.md の ask は §2 裁定表に載せる（書式は箱と同じ）
+DESKS = [os.path.join(ROOT, "04オペレーション資産", "customer", "サポート", "status.md")]
 GRAVES = os.path.join(ROOT, "09アーカイブ", "案件")
 # その便を回す席の本文が在るか（§5 の「手順書」列）。2026-09-20 に「便という種類をやめて席に一本化する」で
 # 正本は 06エージェント資産/_便/（{HHMM}-{便}.md のエイリアス）へ移った。docs/定期便-手順/ は畳む途中の棚のためだけに残す
@@ -156,6 +160,19 @@ def read_projects():
     return rows, no_status, frozen
 
 
+def read_desks():
+    """定点の窓口（DESKS）の status.md を箱と同じ形で読む。§2 の ask にだけ使う。紙が無ければ読み飛ばす"""
+    rows = []
+    for sp in DESKS:
+        if not os.path.exists(sp):
+            continue
+        fm = kiroku.parse_frontmatter(open(sp, encoding="utf-8").read()) or {}
+        rows.append({"name": os.path.relpath(os.path.dirname(sp), ROOT), "owner": fm.get("owner", ""),
+                     "updated": fm.get("updated", ""), "ask": fm.get("ask", ""), "due": fm.get("due", ""),
+                     "note": "（窓口）"})
+    return rows
+
+
 def split3(v):
     parts = [p.strip() for p in cell(v).split("｜")]
     while len(parts) < 3:
@@ -193,15 +210,15 @@ def read_council(projects):
         else:
             items.append(row)
 
-    # 各箱の ask（主君裁定 2026-09-18: 00廷議 ＋ 箱の ask の両方を載せる）
-    for r in projects:
+    # 各箱の ask（主君裁定 2026-09-18: 00廷議 ＋ 箱の ask の両方を載せる）＋ 定点の窓口の ask（DESKS）
+    for r in list(projects) + read_desks():
         if not has_ask(r.get("ask")):
             continue
         q, opts, rec, cost = split_ask(r["ask"])
         seat = cell(r.get("owner")) or "?"
         age = days_since(r.get("updated")) or 0
         row = {"seat": seat, "q": q, "opts": opts, "rec": rec, "due": r.get("due", ""),
-               "cost": cost, "age": age, "note": "（箱）", "key": r["name"]}
+               "cost": cost, "age": age, "note": r.get("note", "（箱）"), "key": r["name"]}
         if rec and opts:
             items.append(row)
         else:
