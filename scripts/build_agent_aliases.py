@@ -2,15 +2,16 @@
 """席のエイリアス箱を建てる（06エージェント資産/_便/ と _孔明起動/）
 
 何をするか: 台帳 2 本を読んで、**symlink だけ**の箱を 2 つ作り直す。
-  _便/      … 便（scheduler が回す物）。名前の頭に時刻（HHMM）を付ける＝開いた瞬間に
+  _便/      … 便（時計＝scheduler か routine が回す物）。名前の頭に時刻（HHMM）を付ける＝開いた瞬間に
                何時に何が回るか見える。台帳 06エージェント資産/_台帳-便.csv
   _孔明起動/ … 孔明が起動したら一緒に起きる席。時刻が無いので名前だけ。
                台帳 06エージェント資産/_台帳-孔明起動.csv
 
 ⛔ この 2 つの箱に実体を置かない。中身は symlink（相対）だけ。⛔ 絶対パスを焼かない。
 
-🔑 便の正本は scheduler で、その控えは **scheduler 自身が持つ JSON**（既定 `~/.claude/scheduler/
-   schedules.json`。環境変数 `SCHEDULER_STATE` で差し替え可）。**この紙はそれを自分で読む**＝
+🔑 便の正本は時計（scheduler か routine）で、その控えは **時計自身が持つ JSON**（既定 `~/.claude/scheduler/
+   schedules.json`、それが無ければ routine の `~/.claude/routine/routines.json`＝在る方・両方在れば scheduler。
+   環境変数 `SCHEDULER_STATE` で差し替え可）。**この紙はそれを自分で読む**＝
    席が `schedule_list` を撃って JSON に落とす手番は要らない（2026-09-20・実測で
    `schedule_list` の戻りと同じ 16 件・同じ id/cron/paused であることを確かめた）。
    このスクリプトは cron・label・状態 を台帳へ書き戻し、`正本`（どの紙がその便の手順か）は
@@ -20,13 +21,13 @@
      台帳の全行が `消えた` に書き換わる）。取得不能として終了コード 2 で落ちる。
 
 使い方:
-    python3 scripts/build_agent_aliases.py                 # scheduler の控え → 台帳 → 箱
+    python3 scripts/build_agent_aliases.py                 # 時計の控え（scheduler か routine）→ 台帳 → 箱
     python3 scripts/build_agent_aliases.py --schedules s.json  # 控えの代わりにこの JSON を読む
     python3 scripts/build_agent_aliases.py --no-refresh    # 台帳だけで箱を作り直す（控えを読まない）
     python3 scripts/build_agent_aliases.py --check         # 検査だけ（終了コード 0/1）
     python3 scripts/build_agent_aliases.py --selftest      # 負制御（検査が落ちるか）
 
-終了コード: 0 = 正常 ／ 1 = 検査に落ちた ／ 2 = 台帳か scheduler の控えが読めない
+終了コード: 0 = 正常 ／ 1 = 検査に落ちた ／ 2 = 台帳か時計の控え（scheduler・routine のどちらも）が読めない
 """
 import argparse, csv, json, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
@@ -44,7 +45,7 @@ KOMEI_README = """# _孔明起動 — 孔明が起動したら一緒に起きる
 |---|---|
 | 何がここに入るか | 孔明が起動したときに、時刻に依らず一緒に起きる席 |
 | 誰が入れるか | 孔明（台帳 `_台帳-孔明起動.csv` に 1 行足して `scripts/build_agent_aliases.py` を撃つ） |
-| `_便/` との違い | `_便/` は scheduler が時刻で起こす物。⛔ **同じ席を両方に置かない**（二重起動）。検査が数える |
+| `_便/` との違い | `_便/` は時計（scheduler か routine）が時刻で起こす物。⛔ **同じ席を両方に置かない**（二重起動）。検査が数える |
 
 ⚠️ この紙は生成器が**無いときだけ**書く。ここに棚ごとの事情（1 号は誰か・いつ建てたか）を足してよい。
 """
@@ -70,15 +71,22 @@ def safe(name: str) -> str:
 
 
 def scheduler_state() -> Path:
-    """scheduler 自身が持つ控えの道。⛔ 機体固有の値を焼かない（$HOME から組む）。"""
+    """時計自身が持つ控えの道。scheduler が無く routine（ストアの時計）だけの機体では routines.json。
+    両方無ければ scheduler の道を返す（呼び手が「無い」と落ちる）。⛔ 機体固有の値を焼かない（$HOME から組む）。"""
     env = os.environ.get("SCHEDULER_STATE")
-    return Path(env) if env else Path.home() / ".claude" / "scheduler" / "schedules.json"
+    if env:
+        return Path(env)
+    sched = Path.home() / ".claude" / "scheduler" / "schedules.json"
+    routine = Path.home() / ".claude" / "routine" / "routines.json"
+    return routine if not sched.exists() and routine.exists() else sched
 
 
 def refresh_from_schedules(shelf: Path, sched_json: Path):
-    """scheduler の控えで 台帳-便 の cron・時刻・便・agent・状態 を書き戻す。正本 は触らない。"""
+    """時計の控え（scheduler の schedules.json か routine の routines.json）で 台帳-便 の
+    cron・時刻・便・agent・状態 を書き戻す。正本 は触らない。routine には agent が無い（空で書く）。"""
     data = json.loads(sched_json.read_text(encoding="utf-8"))
-    scheds = data.get("schedules", data.get("result", data)) if isinstance(data, dict) else data
+    scheds = (data.get("schedules", data.get("routines", data.get("result", data)))
+              if isinstance(data, dict) else data)
     if not isinstance(scheds, list):
         raise ValueError(f"scheduler の控えの形が読めない（list でない）: {sched_json}")
     led = shelf / BIN_LEDGER
@@ -208,7 +216,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--schedules", help="scheduler の控えの代わりに読む JSON（既定は自分で見つける）")
+    ap.add_argument("--schedules", help="時計の控えの代わりに読む JSON（schedules.json か routines.json。既定は自分で見つける）")
     ap.add_argument("--no-refresh", action="store_true", help="控えを読まず、台帳だけで箱を作り直す")
     ap.add_argument("--check", action="store_true", help="検査だけ")
     ap.add_argument("--selftest", action="store_true", help="負制御")
@@ -226,15 +234,17 @@ def main():
         src = Path(a.schedules) if a.schedules else scheduler_state()
         if not src.exists():
             # ⛔ ここで 0 件として続けない。台帳の全行が「消えた」に書き換わる。
-            print(f"❌ 取得不能（scheduler の控えが無い: {src}）")
+            print(f"❌ 取得不能（時計の控えが無い: {src}"
+                  + ("" if a.schedules or os.environ.get("SCHEDULER_STATE")
+                     else f"・{Path.home() / '.claude' / 'routine' / 'routines.json'}") + "）")
             print("   便が本当に 0 本なのか、控えが読めないだけなのか、ここでは区別できない。")
-            print("   控えの道が違うなら SCHEDULER_STATE か --schedules で渡す。")
+            print("   控えの道が違うなら SCHEDULER_STATE か --schedules で渡す（routines.json もそのまま渡せる）。")
             print("   控えを読まずに箱だけ作り直すなら --no-refresh。")
             return 2
         try:
             added, gone = refresh_from_schedules(shelf, src)
         except (ValueError, json.JSONDecodeError) as e:
-            print(f"❌ 取得不能（scheduler の控えが読めない: {src}）: {e}")
+            print(f"❌ 取得不能（時計の控えが読めない: {src}）: {e}")
             return 2
         print(f"台帳-便 を更新（出所 {src}）: 足した {len(added)} 件 {added} / 消えた {len(gone)} 件 {gone}")
     made, skipped = rebuild(shelf)

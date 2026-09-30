@@ -282,10 +282,26 @@ selftest() {
   step "4 空の git リポで道具が走る"
   ( cd "$kit" && git init -q && git config core.hooksPath scripts/git-hooks ) || die "selftest: git init"
   mkdir -p "$t/sched"
-  ( cd "$kit" && SCHEDULER_DIR="$t/sched" python3 scripts/build_scope_progress.py 2> "$t/gen.err" ) || { cat "$t/gen.err"; die "selftest: build_scope_progress.py が落ちた"; }
+  ( cd "$kit" && SCHEDULER_DIR="$t/sched" ROUTINE_DIR="$t/sched" python3 scripts/build_scope_progress.py 2> "$t/gen.err" ) || { cat "$t/gen.err"; die "selftest: build_scope_progress.py が落ちた"; }
   [ -s "$kit/docs/SCOPE_PROGRESS.md" ] || die "selftest: docs/SCOPE_PROGRESS.md が書かれていない"
   ( cd "$kit" && python3 scripts/kiroku.py box --slug 2000-01-01-検体 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: kiroku.py box が落ちた"
   ( cd "$kit" && python3 scripts/kiroku.py --check 08プロジェクト > /dev/null ) || die "selftest: kiroku.py --check が正しい箱で落ちる"
+  step "4-1 routine だけの機体（~/.claude/scheduler/ が無く ~/.claude/routine/ だけ）で生成器 2 本が走る（負制御こみ）"
+  # 🔑 ストアの routine で時計を回す会員の機体の形。HOME を一時 dir に向けて、この機体の控えを読まない（⛔ 本物の時計に触れない）
+  local kr="$t/kit-r"; cp -R "$kit" "$kr" || die "selftest: 器の写しが作れない"
+  mkdir -p "$t/home0" "$t/home/.claude/routine"
+  # 負制御: 時計の控えが両方無い → build_agent_aliases は取得不能で 2（0 件として台帳を「消えた」に書き換えない）
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home0" python3 scripts/build_agent_aliases.py > "$t/al0.out" 2>&1 )
+  if [ $? -ne 2 ]; then cat "$t/al0.out"; echo "🚨 selftest: 時計の控えが無いのに build_agent_aliases.py が 2 で落ちない（取得不能が 0 件に化ける）"; rm -rf "$t"; exit 3; fi
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home0" python3 scripts/build_scope_progress.py --out "$t/sp0.md" 2> /dev/null ) || die "selftest: 控えが無いと build_scope_progress.py が落ちる"
+  grep -q '検体の便' "$t/sp0.md" && { echo "🚨 selftest: routine の控えが無いのに §5 に検体の便が出た（どこか別の控えを読んでいる）"; rm -rf "$t"; exit 3; }
+  # 陽性対照: routines.json と runs.log だけを置く
+  printf '%s\n' '{"version":1,"routines":[{"id":"0c0ffee1","name":"kentai","label":"検体の便","cron":"5 6 * * *","paused":false}]}' > "$t/home/.claude/routine/routines.json"
+  printf '%s\n' '{"ts":"2000-01-01T06:05:00+09:00","routine_id":"0c0ffee1","trigger":"os","result":"ok"}' > "$t/home/.claude/routine/runs.log"
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_agent_aliases.py > "$t/al1.out" 2>&1 ) || { cat "$t/al1.out"; die "selftest: routine だけの機体で build_agent_aliases.py が exit 0 にならない"; }
+  grep -q '^0c0ffee1,5 6 \* \* \*,0605,検体の便,' "$kr/06エージェント資産/_台帳-便.csv" || { cat "$kr/06エージェント資産/_台帳-便.csv"; die "selftest: routine の便が _台帳-便.csv に出ない"; }
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_scope_progress.py --out "$t/sp1.md" 2> "$t/sp1.err" ) || { cat "$t/sp1.err"; die "selftest: routine だけの機体で build_scope_progress.py が落ちた"; }
+  sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -q '| 06:05 | 検体の便 | — | B | 稼働 | .* ok |' || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: routine の便が SCOPE_PROGRESS §5 に出ない（か runs.log の最終発火を読まない）"; }
   step "4-2 引き上げの門が器の中で走る（負制御こみ）"
   # 🔑 gate.py --selftest は検体の音声の尺を ffprobe で測る。素の Mac には無い＝初日に動画は無いので、この段だけ ⏭（黙って飛ばさない・道具が器に在ることは下で見る）
   if command -v ffprobe > /dev/null 2>&1; then
@@ -338,7 +354,7 @@ selftest() {
     echo "🚨 selftest: README だけを渡したのに合格した（0 本を検査して通っている）"; rm -rf "$t"; exit 3
   fi
   rm -rf "$t"
-  echo "✅ selftest: 切り出し・drift・fill・生成器・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）が全部通った"
+  echo "✅ selftest: 切り出し・drift・fill・生成器（routine だけの機体こみ）・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）が全部通った"
   exit 0
 }
 

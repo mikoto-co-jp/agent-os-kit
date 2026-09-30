@@ -11,7 +11,9 @@
   3. 主君の手         lever が非空の箱＝箱｜何を｜何秒｜閉じると何が動くか
   4. 待ち受け         until が非空の箱＝箱｜何を｜誰から｜期待日（今日を過ぎていれば 🔴）
                       ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。廷議が毎朝 1 件ずつ引く・帳簿 id=475）
-  5. Routine          scheduler の正本 ~/.claude/scheduler/schedules.json（--schedules <json> で差し替え可）。agent 列＝その便を走らせる席。
+  5. Routine          時計の控え＝scheduler の ~/.claude/scheduler/schedules.json か、無ければ routine の ~/.claude/routine/routines.json
+                      （在る方を読む・両方在れば scheduler。--schedules <json> で差し替え可）。最終発火は控えの隣の fires.log／runs.log。
+                      agent 列＝その便を走らせる席（routine には agent が無いので「—」）。
                       「手順書」列＝その便を回す席の本文（06エージェント資産/_便/ のエイリアス。畳む途中の棚は docs/定期便-手順/ も見る）。
                       「実行」列＝その便が帳簿（記録 MCP kiroku の run_start／run_end）に走った記録を残したか。
                       ⚠️ Python から口は撃てる（scripts/mcplib.py・2026-09-20 実測）が、**帳簿に便ごとの実行を読む口が無い**。
@@ -48,6 +50,8 @@ ROOT = os.environ.get("MIKOTO_OS_ROOT") or os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))
 OUT_DEFAULT = os.path.join(ROOT, "docs", "SCOPE_PROGRESS.md")
 SCHED_DIR = os.environ.get("SCHEDULER_DIR") or os.path.expanduser("~/.claude/scheduler")
+# routine（ストアの時計・v1.5.0）で回す機体は scheduler の控えが無く、こちらだけが在る
+ROUTINE_DIR = os.environ.get("ROUTINE_DIR") or os.path.expanduser("~/.claude/routine")
 PROJ = os.path.join(ROOT, "08プロジェクト")
 APPROVE = os.path.join(ROOT, "00廷議")
 # 定点の窓口＝終わりの無い箱。08プロジェクト/ には置かないが、status.md の ask は §2 裁定表に載せる（書式は箱と同じ）
@@ -288,17 +292,38 @@ def cron_time(cron):
 
 
 def load_schedules(path):
-    """scheduler の正本だけを読む（2026-09-14: docs/定期便.md は退役・写しから読まない）。"""
-    src = path or os.path.join(SCHED_DIR, "schedules.json")
-    if not os.path.exists(src):
-        return None, src
+    """時計の正本だけを読む（2026-09-14: docs/定期便.md は退役・写しから読まない）。
+    scheduler（schedules.json）か routine（routines.json）の在る方。両方在れば scheduler。
+    戻り: (一覧 or None, src, 最終発火の log の道)。log は scheduler＝fires.log（schedule_id）／routine＝runs.log（routine_id）。"""
+    cands = [path] if path else [os.path.join(SCHED_DIR, "schedules.json"),
+                                 os.path.join(ROUTINE_DIR, "routines.json")]
+    src = next((p for p in cands if os.path.exists(p)), None)
+    if src is None:
+        return None, "・".join(cands), None
     with open(src, encoding="utf-8") as f:
         data = json.load(f)
+    fires = os.path.join(SCHED_DIR, "fires.log")
     if isinstance(data, dict):
-        data = data.get("schedules", data.get("result", data))
+        if "routines" in data:
+            fires = os.path.join(os.path.dirname(src), "runs.log")
+        data = data.get("schedules", data.get("routines", data.get("result", data)))
     if not isinstance(data, list):
-        return None, src
-    return data, src
+        return None, src, None
+    return data, src, fires
+
+
+def read_fires(fires):
+    """最終発火の log → {id: 最後の行}。無ければ空。"""
+    last = {}
+    if fires and os.path.exists(fires):
+        with open(fires, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                last[r.get("schedule_id") or r.get("routine_id")] = r
+    return last
 
 
 def read_runs(runs_path):
@@ -353,19 +378,10 @@ def read_routine(sched_path, runs_path=None):
                 return runs[k]
         return "なし"
 
-    schedules, src = load_schedules(sched_path)
+    schedules, src, fires = load_schedules(sched_path)
     rows = []
     if schedules is not None:
-        last = {}
-        fires = os.path.join(SCHED_DIR, "fires.log")
-        if os.path.exists(fires):
-            with open(fires, encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        r = json.loads(line)
-                    except ValueError:
-                        continue
-                    last[r.get("schedule_id")] = r
+        last = read_fires(fires)
         for s in schedules:
             label = s.get("label") or s.get("id") or ""
             fire = last.get(s.get("id"), {})
@@ -460,7 +476,7 @@ def load_monsters(path):
     return data if isinstance(data, list) else None
 
 
-def read_seats(schedules, monsters_path):
+def read_seats(schedules, monsters_path, fires=None):
     """戻り: (rows, skills, foot)。行は箱ごと。席＝その箱から発火する scheduler の agent。"""
     boxes = read_prompt_boxes()
     skills = read_skill_count()
@@ -470,16 +486,7 @@ def read_seats(schedules, monsters_path):
     names = {b["箱"]: box_names(b["箱"]) for b in boxes}
 
     # scheduler の席（agent）を箱へ結ぶ
-    last = {}
-    fires = os.path.join(SCHED_DIR, "fires.log")
-    if os.path.exists(fires):
-        with open(fires, encoding="utf-8") as f:
-            for line in f:
-                try:
-                    r = json.loads(line)
-                except ValueError:
-                    continue
-                last[r.get("schedule_id")] = r
+    last = read_fires(fires)
     seat_box, loose_seats = {}, []
     for sc in (schedules or []):
         agent = str(sc.get("agent") or "").lstrip("@").strip()
@@ -632,7 +639,8 @@ def build(args):
     untils = read_untils(projects)
     resumes = read_resumes()
     routine, sched_src, runs_found = read_routine(args.schedules, getattr(args, "runs", None))
-    seats, skills, seats_foot = read_seats(load_schedules(args.schedules)[0], args.monsters)
+    scheds, _, fires = load_schedules(args.schedules)
+    seats, skills, seats_foot = read_seats(scheds, args.monsters, fires)
     done = read_done()
     shelf = read_shelf(no_status)
 
@@ -647,7 +655,7 @@ def build(args):
     late = sum(1 for r in untils if r["late"])
 
     L = [f"<!-- 生成: scripts/build_scope_progress.py／{dt.datetime.now():%Y-%m-%d %H:%M}"
-         "／手で編集しない。直すなら元（status.md・00廷議/・scheduler・墓標）を直す -->",
+         "／手で編集しない。直すなら元（status.md・00廷議/・scheduler／routine・墓標）を直す -->",
          f"# 全体像 — {dt.date.today():%Y-%m-%d}",
          "",
          f"数字: 箱 {len(projects)}（" + "・".join(f"{s} {n[s]}" for s in STATES if n[s]) 
@@ -704,14 +712,14 @@ def build(args):
                [f"| {cell(r['name'])} | {cell(r['what'], 80)} | {cell(r['who'], 40)} | {cell(r['where'], 60)} |"
                 for r in resumes])
 
-    L += ["", "## 5. Routine（scheduler の全機体）", ""]
+    L += ["", "## 5. Routine（scheduler／routine の全機体）", ""]
     L += table("| 時刻 | 便 | agent | 機体 | 状態 | 最終発火 | 手順書 | 実行 |",
                [f"| {r['時刻']} | {cell(r['便'], 60)} | {cell(r.get('agent'), 20) or '—'} | "
                 f"{r['機体']} | {r['状態']} | "
                 f"{r['最終発火']} | {r['手順書']} | {r['実行']} |" for r in routine])
     if not any(r["機体"] != "B" for r in routine):
         L += ["", "（ami: 3 本・生成器が読めない）"]
-    L += ["", "- **最終発火**＝scheduler が起こしたか（`~/.claude/scheduler/fires.log`）。**実行**＝その便が走り終わったと"
+    L += ["", "- **最終発火**＝時計が起こしたか（scheduler は `~/.claude/scheduler/fires.log`・routine は `~/.claude/routine/runs.log`）。**実行**＝その便が走り終わったと"
           "帳簿（記録 MCP `kiroku` の `run_start`／`run_end`）に残したか。**起こした ≠ 走り切った**ので 2 列ある",
           "- 実行の出所は `11一時ファイル/便の実行-YYYY-MM.tsv`（便が `run_end` と同時に置く窓・7 日で消える）。"
           "**正本は帳簿**＝手が要った率は `stocktake` で数える。書き方は `.claude/rules/メモリシステム.md`「記録は、どこに書くか」"]
@@ -786,7 +794,7 @@ def cmd_check(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--schedules", help="scheduler の一覧 JSON（schedule_list の結果）")
+    ap.add_argument("--schedules", help="時計の一覧 JSON（scheduler の schedules.json か routine の routines.json）")
     ap.add_argument("--monsters", help="monster の一覧 JSON（list_monsters の結果）。無ければ「（未取得）」")
     ap.add_argument("--runs", help="便の実行の窓 tsv（既定: 11一時ファイル/便の実行-YYYY-MM.tsv を全部）")
     ap.add_argument("--out", default=OUT_DEFAULT)
