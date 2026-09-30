@@ -41,6 +41,22 @@ KIT_BOXES="00廷議 01商品資産 02マーケティング資産 03セールス�
 
 die() { echo "🚨 $*" >&2; exit "${2:-1}"; }
 
+# ---------- 時計の門: 配る紙で scheduler が既定として出てこないか ----------
+# 🔑 時計は routine（初伝から使える）が既定。scheduler は皆伝向けの選択肢（主君裁定 2026-09-30）。
+#   紙（scripts/ の道具を除く）で scheduler に触れてよいのは ①`seki` の規則（記録の語で時計の種類ではない）②「皆伝」の 1 行 だけ。
+#   それ以外に 1 行でも出たら初伝の会員の機体に無い物を指す ⇒ exit 1。皆伝の行が 2 行以上でも落とす
+clock_gate() {
+  local hits bad jin
+  hits=$(cd "$1" && grep -rn scheduler . --exclude-dir=scripts 2>/dev/null)
+  bad=$(printf '%s\n' "$hits" | grep -v -e '^$' -e 'seki' -e '皆伝' || true)
+  jin=$(printf '%s\n' "$hits" | grep -v 'seki' | grep -c '皆伝' || true)
+  if [ -n "$bad" ] || [ "${jin:-0}" -gt 1 ]; then
+    echo "❌ 時計の門: scheduler が既定として出ている（seki の規則と皆伝の 1 行だけ許す・皆伝 ${jin:-0} 行）"; [ -n "$bad" ] && printf '%s\n' "$bad" | command cut -c1-160 | sed 's/^/   /'
+    return 1
+  fi
+  echo "✅ 時計の門: scheduler は seki の規則と皆伝の 1 行だけ（皆伝 ${jin:-0} 行）"
+}
+
 # ---------- --drift: 雛形の骨が生きている紙と一致するか ----------
 drift() {
   python3 - "$ROOT" "$KIT" <<'PY'
@@ -196,6 +212,8 @@ GI
   local files; files=$(find "$OUT" -type f -not -name '.gitkeep' | sort)
   # shellcheck disable=SC2086
   bash "$GATE" $files || rc=1
+  echo "== 門: 時計（routine が既定・scheduler は皆伝の 1 行）"
+  clock_gate "$OUT" || rc=1
   [ $rc = 0 ] && echo "✅ 器は配れる（固有値 0 件・落とした物 0）" || echo "🚨 配れない（上の 🚨／❌ を直す）"
   return $rc
 }
@@ -301,7 +319,25 @@ selftest() {
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_agent_aliases.py > "$t/al1.out" 2>&1 ) || { cat "$t/al1.out"; die "selftest: routine だけの機体で build_agent_aliases.py が exit 0 にならない"; }
   grep -q '^0c0ffee1,5 6 \* \* \*,0605,検体の便,' "$kr/06エージェント資産/_台帳-便.csv" || { cat "$kr/06エージェント資産/_台帳-便.csv"; die "selftest: routine の便が _台帳-便.csv に出ない"; }
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_scope_progress.py --out "$t/sp1.md" 2> "$t/sp1.err" ) || { cat "$t/sp1.err"; die "selftest: routine だけの機体で build_scope_progress.py が落ちた"; }
-  sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -q '| 06:05 | 検体の便 | — | B | 稼働 | .* ok |' || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: routine の便が SCOPE_PROGRESS §5 に出ない（か runs.log の最終発火を読まない）"; }
+  sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -q '| 06:05 | 検体の便 | — | routine | 稼働 | .* ok |' || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: routine の便が SCOPE_PROGRESS §5 に出ない（か runs.log の最終発火を読まない）"; }
+  # 会員の全体像に当社の機体の事情（機体名）を焼かない
+  sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -qiw 'ami' && { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: §5 に当社の機体名が出た（配る生成器に固有の行が焼かれている）"; }
+  # 陽性対照: 皆伝の機体（routine に加えて scheduler の控えも在る）では両方の便が合わさって出る＝scheduler の機体を壊していない
+  mkdir -p "$t/home/.claude/scheduler"
+  printf '%s\n' '{"schedules":[{"id":"5c4ed01e","label":"検体の皆伝便","cron":"30 7 * * *","agent":"検体席","paused":false}]}' > "$t/home/.claude/scheduler/schedules.json"
+  printf '%s\n' '{"ts":"2000-01-01T07:30:00+09:00","schedule_id":"5c4ed01e","result":"spawned"}' > "$t/home/.claude/scheduler/fires.log"
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_agent_aliases.py > "$t/al2.out" 2>&1 ) || { cat "$t/al2.out"; die "selftest: 両方の控えが在る機体で build_agent_aliases.py が exit 0 にならない"; }
+  { grep -q '^0c0ffee1,' "$kr/06エージェント資産/_台帳-便.csv" && grep -q '^5c4ed01e,30 7 \* \* \*,0730,検体の皆伝便,,検体席,稼働,' "$kr/06エージェント資産/_台帳-便.csv"; } || { cat "$kr/06エージェント資産/_台帳-便.csv"; die "selftest: 両方の控えが在る機体で _台帳-便.csv に片方しか出ない"; }
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_scope_progress.py --out "$t/sp2.md" 2> "$t/sp2.err" ) || { cat "$t/sp2.err"; die "selftest: 両方の控えが在る機体で build_scope_progress.py が落ちた"; }
+  { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md" | grep -q '| 06:05 | 検体の便 | — | routine | 稼働 | .* ok |' \
+    && sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md" | grep -q '| 07:30 | 検体の皆伝便 | 検体席 | scheduler | 稼働 | .* spawned |'; } || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md"; die "selftest: 両方の控えが在る機体で §5 に片方しか出ない"; }
+  step "4-1b 時計の門（配る紙で scheduler が既定として出てこない・負制御こみ）"
+  # 🔑 切り出した直後の紙で撃つ（生成器が書いた全体像は §5 の注記で皆伝に触れるので、$kit ではなく素の切り出し）
+  local kc="$t/kit-c"; bash "$0" "$kc" > /dev/null 2>&1 || die "selftest: 時計の門の検体が切り出せない"
+  clock_gate "$kc" > /dev/null || { clock_gate "$kc"; die "selftest: 切り出した紙に scheduler が既定として出ている"; }
+  printf '\n- 便は時計（scheduler か routine）が起こす\n' >> "$kc/06エージェント資産/README.md"
+  if clock_gate "$kc" > /dev/null; then echo "🚨 selftest: scheduler を既定として 1 行戻したのに時計の門が通った（門が死んでいる）"; rm -rf "$t"; exit 3; fi
+  rm -rf "$kc"
   step "4-2 引き上げの門が器の中で走る（負制御こみ）"
   # 🔑 gate.py --selftest は検体の音声の尺を ffprobe で測る。素の Mac には無い＝初日に動画は無いので、この段だけ ⏭（黙って飛ばさない・道具が器に在ることは下で見る）
   if command -v ffprobe > /dev/null 2>&1; then
@@ -354,7 +390,7 @@ selftest() {
     echo "🚨 selftest: README だけを渡したのに合格した（0 本を検査して通っている）"; rm -rf "$t"; exit 3
   fi
   rm -rf "$t"
-  echo "✅ selftest: 切り出し・drift・fill・生成器（routine だけの機体こみ）・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）が全部通った"
+  echo "✅ selftest: 切り出し・drift・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）が全部通った"
   exit 0
 }
 
