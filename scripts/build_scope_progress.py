@@ -3,13 +3,17 @@
 
 型の正本はこの docstring（旧 影分身/分身.md §3-1 は 2026-09-15 に退役）。節の順は固定。空の節は「（なし）」1 行。
 語彙表（箱の state・鍵）は scripts/kiroku.py から import する（主君裁定 2026-09-18・帳簿 id=440）。
-  1. プロジェクト     08プロジェクト/*/status.md を state 別（起案／裁定待ち／実行中／外部待ち／確認待ち／完了）の表＝箱｜owner｜next｜updated。
+  （2026-10-02 主君裁定・帳簿 id=3117: 箱の書き方を開発の箱と同じ 4 語の state と `手番: 誰が｜何を｜🔬実測` の 1 欄に揃えた。
+   ask／lever／until は退役。§2〜§4 はどれも 手番 の『誰が』1 本から仕分ける＝誰のボールかを 2 か所で持たない）
+  1. プロジェクト     08プロジェクト/*/status.md を state 別（起案／実行中／完了）の表＝箱｜owner｜手番（誰が）｜next｜updated。
                       status.md の無い箱・語彙外の state は赤。09アーカイブ/案件/ の凍結箱は末尾に一覧
-  2. 裁定表           00廷議/*.md（7 項目）の全数 ＋ 各箱の ask（問い｜選択肢｜推奨｜決めないと）。束ねない。推奨なしは差し戻し
-                      ＋ 定点の窓口（DESKS の status.md）の ask も同じ書式で載せる（08プロジェクト/ の外に居る終わりの無い箱。
+  2. 裁定表           00廷議/*.md の全数（手番 の『誰が』＝主君 の紙。孔明 の紙は「孔明が裁く（うけつけ）」に別に出す・手番なしは差し戻し）
+                      ＋ 手番 の『誰が』＝主君 の箱のうち、本文 `## 決裁待ちの材料` に 選択肢 が在る物（問い｜選択肢｜推奨｜決めないと）。
+                      束ねない。推奨なしは差し戻し
+                      ＋ 定点の窓口（DESKS の status.md）の ask も同じ書式で載せる（08プロジェクト/ の外に居る終わりの無い箱・まだ旧書式。
                       2026-09-21 主君裁定 ③C・00廷議/2026-09-19-棚-答えが返っていない問いの全数.md §4-3）
-  3. 主君の手         lever が非空の箱＝箱｜何を｜何秒｜閉じると何が動くか
-  4. 待ち受け         until が非空の箱＝箱｜何を｜誰から｜期待日（今日を過ぎていれば 🔴）
+  3. 主君の手         手番 の『誰が』＝主君 の箱のうち、材料に 選択肢 が無い物（体を動かす頼み）＝箱｜何を｜🔬 実測
+  4. 待ち受け         手番 の『誰が』が 主君 以外の箱＝箱｜誰が｜何を｜期待日（何を の `期待日 YYYY-MM-DD`。今日を過ぎていれば 🔴）
                       ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。廷議が毎朝 1 件ずつ引く・帳簿 id=475）
   5. Routine          時計の控え＝routine の ~/.claude/routine/routines.json（初伝から使える既定の時計）と、
                       皆伝の機体なら scheduler の ~/.claude/scheduler/schedules.json も。在る方を全部読んで 1 表に合わせる
@@ -71,9 +75,9 @@ BIG_BYTES = 5 * 1024 * 1024
 MEDIA = (".mp4", ".mov", ".pdf", ".png", ".jpg", ".jpeg", ".zip")
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
 
-# 箱の state は kiroku.STATES（8 語）。生成器はこの並びで §1 の表を出す。語彙外・status.md 無しは赤
+# 箱の state は kiroku.STATES（4 語）。生成器はこの並びで §1 の表を出す。語彙外・status.md 無しは赤
 STATES = kiroku.STATES
-STATE_SECTIONS = ("起案", "裁定待ち", "実行中", "外部待ち", "確認待ち", "完了")   # §1 に必ず出す 6 つ
+STATE_SECTIONS = ("起案", "実行中", "完了")   # §1 に必ず出す 3 つ（吸収済 は在るときだけ）
 STATE_ORDER = {s: i for i, s in enumerate(STATES)}
 STATE_ORDER.update({"語彙外": 90, "状態なし": 91, "凍結": 92})
 
@@ -136,7 +140,7 @@ def md(iso):
 # ---------- 1. プロジェクト ----------
 
 def read_projects():
-    """rows: state / name / owner / next / due / updated / ask / lever / until / bad（赤）"""
+    """rows: state / name / owner / next / due / updated / 手番 / material（本文の 決裁待ちの材料）/ bad（赤）"""
     rows, no_status = [], []
     for d in sorted(glob.glob(os.path.join(PROJ, "*"))):
         if not os.path.isdir(d):
@@ -147,15 +151,16 @@ def read_projects():
             no_status.append(name)
             rows.append({"state": "状態なし", "name": name, "owner": "?",
                          "next": "**status.md が無い。付けるまで赤**", "due": "", "updated": "",
-                         "ask": "", "lever": "", "until": "", "bad": True})
+                         "手番": "", "material": {}, "bad": True})
             continue
-        fm = kiroku.parse_frontmatter(open(sp, encoding="utf-8").read()) or {}
+        text = open(sp, encoding="utf-8").read()
+        fm = kiroku.parse_frontmatter(text) or {}
         st = fm.get("state", "").strip()
         bad = st not in STATES
         rows.append({"state": st if not bad else "語彙外", "raw_state": st, "name": name,
                      "owner": fm.get("owner", ""), "next": fm.get("next", ""),
                      "due": fm.get("due", ""), "updated": fm.get("updated", ""),
-                     "ask": fm.get("ask", ""), "lever": fm.get("lever", ""), "until": fm.get("until", ""),
+                     "手番": fm.get("手番", ""), "material": read_material(kiroku.body_of(text)),
                      "path": sp, "bad": bad})
     frozen = []
     for d in sorted(glob.glob(os.path.join(GRAVES, "*"))):
@@ -163,6 +168,25 @@ def read_projects():
             frozen.append(os.path.basename(d))
     rows.sort(key=lambda r: (STATE_ORDER.get(r["state"], 89), r["due"] or "9999", r["name"]))
     return rows, no_status, frozen
+
+
+def read_material(body):
+    """本文の `## 決裁待ちの材料` 節から 問い／選択肢／推奨／決めないと を取る（- 鍵: 値 の行。決めないと は「決めないと…:」で始まる鍵も可）。"""
+    m = re.search(r"^## " + kiroku.MATERIAL_HEAD + r".*?$(.*?)(?=^## |\Z)", body or "", re.S | re.M)
+    out = {}
+    if not m:
+        return out
+    for line in m.group(1).splitlines():
+        mm = re.match(r"^\s*[-*]\s*(問い|選択肢|推奨|決めないと)[^:：]*[:：]\s*(.*)$", line)
+        if mm and mm.group(1) not in out:
+            out[mm.group(1)] = mm.group(2).strip()
+    return out
+
+
+def is_body_ask(opts):
+    """選択肢が無い（空・「（体を動かす頼み）」）＝裁定ではなく体を動かす頼み＝§3"""
+    o = cell(opts)
+    return not o or o.startswith("（体を動かす")
 
 
 def read_desks():
@@ -188,8 +212,9 @@ def split3(v):
 # ---------- 2. 裁定表 ----------
 
 def read_council(projects):
-    """00廷議/*.md（正） ＋ 各箱の ask。推奨なしは表に入れず差し戻し。"""
-    items, sent_back, waiting = [], [], []
+    """00廷議/*.md（正） ＋ 手番=主君 の箱の材料 ＋ 窓口の ask。推奨なしは表に入れず差し戻し。
+    00廷議 の紙は 手番 の『誰が』で分ける: 主君＝裁定表／孔明＝うけつけ（孔明が受けるか断るかを裁く）／手番なし＝差し戻し"""
+    items, sent_back, koumei = [], [], []
 
     for p in sorted(glob.glob(os.path.join(APPROVE, "*.md"))):
         fm = frontmatter(p)
@@ -210,13 +235,30 @@ def read_council(projects):
                "due": fm.get("期限", ""), "cost": fm.get("決めないと", ""),
                "age": age, "note": "",
                "key": (fm.get("案件", "") or fm.get("プロジェクト", "") or seat)}
-        if fm.get("until") or "until:" in fm.get("期限", ""):
-            waiting.append(row)
-        else:
+        dare = kiroku.dare_of(fm.get("手番", ""))
+        if dare == "主君":
             items.append(row)
+        elif dare == "孔明":
+            koumei.append(row)
+        else:
+            sent_back.append((seat, base, "手番なし（主君か孔明か）" if not dare else f"手番 の誰が が {dare}（00廷議 は 主君 か 孔明）"))
 
-    # 各箱の ask（主君裁定 2026-09-18: 00廷議 ＋ 箱の ask の両方を載せる）＋ 定点の窓口の ask（DESKS）
-    for r in list(projects) + read_desks():
+    # 手番=主君 の箱の材料（選択肢が在る物＝裁定。無い物は §3 主君の手）
+    for r in projects:
+        if kiroku.dare_of(r.get("手番")) != "主君" or is_body_ask(r["material"].get("選択肢")):
+            continue
+        mt = r["material"]
+        seat = cell(r.get("owner")) or "?"
+        age = days_since(r.get("updated")) or 0
+        row = {"seat": seat, "q": mt.get("問い", ""), "opts": mt.get("選択肢", ""), "rec": mt.get("推奨", ""),
+               "due": r.get("due", ""), "cost": mt.get("決めないと", ""), "age": age, "note": "（箱）", "key": r["name"]}
+        if row["rec"]:
+            items.append(row)
+        else:
+            sent_back.append((seat, r["name"] + "（箱の材料）", "推奨なし"))
+
+    # 定点の窓口の ask（DESKS・まだ旧書式の紙。窓口の writer が 手番 へ移すまでここで拾う）
+    for r in read_desks():
         if not has_ask(r.get("ask")):
             continue
         q, opts, rec, cost = split_ask(r["ask"])
@@ -231,18 +273,18 @@ def read_council(projects):
 
     # 全数を出す（束ねない・2026-09-14 主君 GO）。並びは期限が近い順 → 古い順
     items.sort(key=lambda r: (r["due"] or "9999", -r["age"]))
-    return items, waiting, sent_back
+    return items, koumei, sent_back
 
 
-# ---------- 3. 主君の手（lever）／ 4. 待ち受け（until） ----------
+# ---------- 3. 主君の手／ 4. 待ち受け（どちらも 手番 の『誰が』から） ----------
 
 def read_levers(projects):
     out = []
     for r in projects:
-        if not cell(r.get("lever")):
+        if kiroku.dare_of(r.get("手番")) != "主君" or not is_body_ask(r["material"].get("選択肢")):
             continue
-        what, sec, opens = split3(r["lever"])
-        out.append({"name": r["name"], "what": what, "sec": sec, "opens": opens})
+        _who, what, k = kiroku.teban_parts(r["手番"])
+        out.append({"name": r["name"], "what": what, "k": k})
     return out
 
 
@@ -250,15 +292,13 @@ def read_untils(projects):
     out = []
     today = dt.date.today()
     for r in projects:
-        if not cell(r.get("until")):
+        who = kiroku.dare_of(r.get("手番"))
+        if not cell(r.get("手番")) or who == "主君":
             continue
-        what, who, when = split3(r["until"])
-        late = False
-        try:
-            late = dt.date.fromisoformat(when) < today
-        except ValueError:
-            pass
-        out.append({"name": r["name"], "what": what, "who": who, "when": when, "late": late})
+        _w, what, _k = kiroku.teban_parts(r["手番"])
+        when = kiroku.expect_of(r["手番"])
+        late = bool(when) and dt.date.fromisoformat(when) < today
+        out.append({"name": r["name"], "what": what, "who": who or "⚠️語彙外", "when": when or "—", "late": late})
     out.sort(key=lambda r: (r["when"] if re.match(r"^\d{4}-", r["when"]) else "9999", r["name"]))
     return out
 
@@ -649,7 +689,7 @@ def table(header, rows):
 def build(args):
     """→ (lines, stderr 用の数字)"""
     projects, no_status, frozen = read_projects()
-    items, waiting, sent_back = read_council(projects)
+    items, koumei, sent_back = read_council(projects)
     levers = read_levers(projects)
     untils = read_untils(projects)
     resumes = read_resumes()
@@ -683,18 +723,18 @@ def build(args):
          "## 1. プロジェクト（08プロジェクト/ の箱・state 別）", ""]
 
     def box_rows(rs):
-        return [f"| {cell(r['name'])} | {cell(r['owner']) or '?'} | {cell(r['next'], 90) or '—'} | "
-                f"{md(r['updated'])} |" for r in rs]
+        return [f"| {cell(r['name'])} | {cell(r['owner']) or '?'} | {kiroku.dare_of(r.get('手番')) or '—'} | "
+                f"{cell(r['next'], 90) or '—'} | {md(r['updated'])} |" for r in rs]
 
     for st in STATE_SECTIONS:
         rs = [r for r in projects if r["state"] == st]
         L += [f"### {st}（{len(rs)}）", ""]
-        L += table("| 箱 | owner | next | updated |", box_rows(rs))
+        L += table("| 箱 | owner | 手番 | next | updated |", box_rows(rs))
         L.append("")
-    for st in ("統合可", "吸収済"):
+    for st in ("吸収済",):
         rs = [r for r in projects if r["state"] == st]
         if rs:
-            L += [f"### {st}（{len(rs)}）", ""] + table("| 箱 | owner | next | updated |", box_rows(rs)) + [""]
+            L += [f"### {st}（{len(rs)}）", ""] + table("| 箱 | owner | 手番 | next | updated |", box_rows(rs)) + [""]
     bad = [r for r in projects if r["state"] in ("語彙外", "状態なし")]
     L += [f"### 赤（{len(bad)}・直すのは owner）", ""]
     L += table("| 何 | 箱 | 直し方 |",
@@ -704,7 +744,7 @@ def build(args):
                 for r in bad])
     L += ["", f"凍結（09アーカイブ/案件/ の箱・再点火は主君）: " + ("・".join(frozen) if frozen else "（なし）")]
 
-    L += ["", "## 2. 裁定表（00廷議/ ＋ 箱の ask・番号で返す）", ""]
+    L += ["", "## 2. 裁定表（00廷議/ と箱の 手番＝主君・番号で返す）", ""]
     L += table("| # | 席 | 問い | 推奨 | 期限 | 決めないと |",
                [f"| {CIRCLED[i] if i < len(CIRCLED) else '(' + str(i + 1) + ')'} | "
                 f"{cell(r['seat'], 20)}{r['note']} | {cell(r['q'], 70)} | "
@@ -712,15 +752,17 @@ def build(args):
                 for i, r in enumerate(items)])
     L += ["", f"（差し戻し: {len(sent_back)} 件）", ""]
     L += [f"- **差し戻し**: {cell(s, 20)}｜{cell(w, 50)}｜理由＝{why}" for s, w, why in sent_back] or ["- 差し戻し: （なし）"]
+    L += ["", f"### 孔明が裁く（00廷議/ のうけつけ・手番＝孔明）（{len(koumei)}）", ""]
+    L += table("| 席 | 問い | 推奨 |",
+               [f"| {cell(r['seat'], 20)} | {cell(r['q'], 70)} | {cell(r['rec'], 40) or '—'} |" for r in koumei])
 
-    L += ["", "## 3. 主君の手（lever が非空の箱）", ""]
-    L += table("| 箱 | 何を | 何秒 | 閉じると何が動くか |",
-               [f"| {cell(r['name'])} | {cell(r['what'], 80)} | {cell(r['sec'], 20)} | {cell(r['opens'], 80)} |"
-                for r in levers])
+    L += ["", "## 3. 主君の手（手番＝主君 の箱のうち、体を動かす頼み）", ""]
+    L += table("| 箱 | 何を | 🔬 実測 |",
+               [f"| {cell(r['name'])} | {cell(r['what'], 100)} | {cell(r['k'], 80)} |" for r in levers])
 
-    L += ["", "## 4. 待ち受け（until が非空の箱・🔴＝期待日を過ぎた）", ""]
-    L += table("| 箱 | 何を | 誰から | 期待日 |",
-               [f"| {cell(r['name'])} | {cell(r['what'], 80)} | {cell(r['who'], 40)} | "
+    L += ["", "## 4. 待ち受け（手番 が 主君 以外の箱・🔴＝期待日を過ぎた）", ""]
+    L += table("| 箱 | 誰が | 何を | 期待日 |",
+               [f"| {cell(r['name'])} | {cell(r['who'])} | {cell(r['what'], 80)} | "
                 f"{'🔴 ' if r['late'] else ''}{cell(r['when'])} |" for r in untils])
     L += ["", "### 再開の合図（09アーカイブ/案件/ の閉じた箱・resume が非空。来ていたら箱を 08プロジェクト/ へ戻す）", ""]
     L += table("| 箱 | 何を | 誰から | どこで拾う |",

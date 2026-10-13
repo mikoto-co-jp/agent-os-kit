@@ -15,6 +15,7 @@ git -c core.quotepath=false diff --cached --name-only --diff-filter=ACM -- '*.md
  | while read -r f; do
   git show ":$f" | grep -oE '`(\.claude|docs|0[1-7][^`/ ]*|scripts|10私用|11一時ファイル)/[^`]+`' | tr -d '`' | sort -u | while read -r p; do
     case "$p" in *'*'*|*'<'*|*'…'*|*'['*|*'{'*|*'YYYY'*|*'NNN'*) continue;; esac   # glob・placeholder は飛ばす
+    case "$p" in 10私用/*|11一時ファイル/*|*/一時ファイル/*) continue;; esac   # git に載らない道は機体ごとに在る・無いが割れるので測らない（2026-10-02・別の機体で A配信-短編/ が無く README の保存が落ちた）
     # 旗（空白の後の -…）は道でない。全角括弧「（」はファイル名の字にも注釈の頭にもなるので、
     # まず書かれたままで測り、無ければ注釈を落として測り直す（2026-09-21・帳簿 id=1284。誤検知 3 件で --no-verify が撃たれた）
     p=$(printf '%s' "$p" | sed 's/ -.*//')

@@ -9,15 +9,15 @@
 
 まだ作られていません。`python3 scripts/build_scope_progress.py` で作られます。
 
-## 2. 裁定表（00廷議/ ＋ 箱の ask・番号で返す）
+## 2. 裁定表（00廷議/ と箱の 手番＝主君・番号で返す）
 
 まだ作られていません。`python3 scripts/build_scope_progress.py` で作られます。
 
-## 3. 主君の手（lever が非空の箱）
+## 3. 主君の手（手番＝主君 の箱のうち、体を動かす頼み）
 
 まだ作られていません。`python3 scripts/build_scope_progress.py` で作られます。
 
-## 4. 待ち受け（until が非空の箱・🔴＝期待日を過ぎた）
+## 4. 待ち受け（手番 が 主君 以外の箱・🔴＝期待日を過ぎた）
 
 まだ作られていません。`python3 scripts/build_scope_progress.py` で作られます。
 

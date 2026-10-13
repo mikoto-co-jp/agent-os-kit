@@ -59,8 +59,10 @@ def read_ledger(path: Path):
 
 
 def hhmm(cron: str) -> str:
-    """cron の 分 時 から HHMM。読めなければ空。"""
+    """cron の 分 時 から HHMM。読めなければ空。N 分おき（`*/N *`）は `00NN`（例 `*/2` → `0002`）。"""
     p = (cron or "").split()
+    if len(p) >= 2 and p[1] == "*" and re.fullmatch(r"\*/\d{1,2}", p[0]):
+        return f"00{int(p[0][2:]):02d}"
     if len(p) < 2 or not p[0].isdigit() or not p[1].isdigit():
         return ""
     return f"{int(p[1]):02d}{int(p[0]):02d}"

@@ -2,7 +2,7 @@
 """カードの検品（工程 4 の後）。1 枚ごとに ①frontmatter の key が名前と同じ ②文字起こしの先頭・末尾 150 字が元の .txt と一致 ③YAML が閉じている。
 
 使い方: python3 verify_cards.py --work <一時ファイルの箱> --shelf <棚のルート>
-  カード＝<棚>/09アーカイブ/コンテクスト銀行/<source>-<id>.md、元の文字＝<work>/text/<source>/<id>.txt
+  カード＝<棚>/コンテクスト銀行/<source>-<id>.md、元の文字＝<work>/text/<source>/<id>.txt
   ⚠️ 面（source）と id は **frontmatter から引く**。⛔ 鍵を最初のハイフンで割らない——面の名前にハイフンが入った瞬間に誤る
      （実測 2026-09-19: youtube は通るが line-step／mail-myasp／funnel-utage は面が line／mail／funnel に化けた）。
      あわせて key == source-id を検め、鍵と事実の層のずれも落とす。

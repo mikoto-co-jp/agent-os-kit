@@ -2,14 +2,15 @@
 # make-kit.sh — 生きている棚から「器だけ」を切り出す 1 本（AOS設置が撃つ）。
 #
 # 🔑 何を配るか: 地図（CLAUDE.md）・規則の紙 3 枚（.claude/rules/・固有値は {名前} の穴）・空の箱（.gitkeep。README を置いた 3 箱だけ .gitkeep なし）・
-#   道具（scripts/ の固定リスト・git-hooks/・kit-ingest/・sms/）・.gitignore・docs/SCOPE_PROGRESS.md の芯 1 枚。**中身は 1 行も入れない**（規矩 X-7）。
+#   道具（scripts/kit/scripts/ に固定した写し＝kiroku.py ほか 4 本・make-kit.sh・git-hooks/・kit-ingest/・sms/）・.gitignore・docs/SCOPE_PROGRESS.md の芯 1 枚。**中身は 1 行も入れない**（規矩 X-7）。
+#   🔑 配る版は棚から切り離して固定してある（2026-10-13 主君「弊社は弊社なりの進化を遂げているんで、配布用のキットと常に同期させる必要はない」）。
+#      棚の scripts/ をいくら直しても配る版には流れない。配る版を新しくするのは、主君が決めて scripts/kit/ を直したときだけ。
 #   docs/SCOPE_PROGRESS.md は「8 節の見出しと『まだ作られていません』の 1 行」だけの芯を入れる（⛔ 空の紙にしない＝「全体像」と名乗って何も言わない紙は嘘になる）。
 #   中身は生成器が最初に撃たれたとき（`python3 scripts/build_scope_progress.py`）にまるごと書き直す。
 #   ⛔ docs/定期便-手順/ は配らない（2026-09-20 主君裁定「便という種類をやめて席に一本化する」で箱ごと畳んだ。
 #      中身＝全体像の作り方は AOS設置 §5 と 孔明の起動の手へ、走った記録の書き方は メモリシステム「記録は、どこに書くか」へ継いだ）。
-# 🔑 雛形の置き場: scripts/kit/（生きている紙から固有値・件数・日付つきの社内事故を抜いた写し）。雛形も出力に入れる（建てた棚が自分で門を撃ち、次の棚を切り出せる）。
-#   写しは腐るので **--drift** が門: 規矩の X・H（雛形は生きている紙の部分集合・番号は連番）・帳簿の列・領域 8 語・種別・層、箱の state 8 語 が
-#   生きている紙（.claude/rules/・scripts/kiroku.py）と一致しなければ exit 1。--selftest はこれも撃つ。
+# 🔑 雛形の置き場: scripts/kit/（規則の紙・地図・道具の写し。固有値・件数・日付つきの社内事故を抜いた物）。雛形も出力に入れる（建てた棚が自分で門を撃ち、次の棚を切り出せる）。
+#   棚の紙や道具と揃っているかは照合しない（--drift は 2026-10-13 に退役。互換のため撃っても何もせず exit 0）。
 #
 # 使い方:
 #   bash scripts/make-kit.sh <出力先>                       出力先は空か存在しない dir。門（固有値 0 件）を通れば exit 0
@@ -17,7 +18,7 @@
 #                                                          雛形の {名前} を埋める（冪等。無い穴は何もしない。埋めない穴は残る）
 #                                                          ⛔ 埋めるのは「その人の棚の紙」だけ。scripts/ 配下（道具自身と scripts/kit/ の雛形の写し）には触れない
 #                                                             （触れると次の切り出しと --selftest の門が固有値で落ちる＝2026-09-20 通しテスト §2-6）
-#   bash scripts/make-kit.sh --drift                        雛形と生きている紙の骨が一致するか（exit 0/1）
+#   bash scripts/make-kit.sh --drift                        退役（配る版は棚から切り離した。撃っても照合せず exit 0）
 #   bash scripts/make-kit.sh --numbers <道…>                 配る物が指す X-n・H-n・§n が雛形の規矩に実在するか（exit 0/1）
 #   bash scripts/make-kit.sh --selftest                     空の一時 git リポに切り出して門を全部撃つ。exit 0＝合格／1＝壊れている／3＝負制御が落ちなかった
 #                                                          ffprobe が無い機体では 4-2（引き上げの門の selftest）だけ ⏭ で飛ばす（初日に動画は無い。飛ばした事実は 1 行出す）
@@ -36,7 +37,7 @@ KIT_HOOKS="pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-com
 KIT_INGEST="verify_complete.py fetch_one.py transcribe_loop.py drive_put.py build_ledger.py manifest_add.py inventory_youtube.py verify_cards.py gate.py"
 KIT_SMS="read_code.sh"
 KIT_BOXES="00廷議 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06エージェント資産 06エージェント資産/_便 06エージェント資産/_孔明起動 07学習資産 08プロジェクト
-09アーカイブ/案件 09アーカイブ/裁定 09アーカイブ/コンテクスト銀行 10私用 11一時ファイル"
+09アーカイブ/案件 09アーカイブ/裁定 コンテクスト銀行 10私用 11一時ファイル"
 # ==================================================================================================
 
 die() { echo "🚨 $*" >&2; exit "${2:-1}"; }
@@ -59,50 +60,8 @@ clock_gate() {
 
 # ---------- --drift: 雛形の骨が生きている紙と一致するか ----------
 drift() {
-  python3 - "$ROOT" "$KIT" <<'PY'
-import re, sys, os
-root, kit = sys.argv[1], sys.argv[2]
-def read(p): return open(p, encoding="utf-8").read().splitlines()
-def cells(l): return [c.strip() for c in l.strip().strip("|").split("|")]
-def bones(lines):
-    b = {}
-    for l in lines:
-        if re.match(r"^\| X-\d", l): c = cells(l); b["X " + c[0]] = (c[1], c[3])   # やらない事・代わりに（理由は日付を抜いてよい）
-        if re.match(r"^\| H-\d", l): c = cells(l); b["H " + c[0]] = c[1]
-        if re.match(r"^date,領域,", l): b["列"] = l
-        if re.match(r"^\| \*\*`種別`\*\*", l): b["種別"] = l
-        if re.match(r"^\| `層`", l): b["層"] = l
-    sec = False
-    for l in lines:
-        if l.startswith("### 領域"): sec = True; continue
-        if sec and l.startswith("#"): break
-        if sec and re.match(r"^\| \*?\*?`", l): b.setdefault("領域", []).append(re.sub(r"[*`]", "", cells(l)[0]))
-    return b
-live = bones(read(os.path.join(root, ".claude/rules/規矩.md")))
-tmpl = bones(read(os.path.join(kit, ".claude/rules/規矩.md")))
-rc = 0
-# X・H は「雛形 ⊆ 生きている紙」を中身で照合（主君が器から落とした行が在る＝2026-09-18・番号は雛形側で 1..n の連番に振り直す）
-for pre in ("X ", "H "):
-    live_vals = {v for k, v in live.items() if k.startswith(pre)}
-    tk = sorted((k for k in tmpl if k.startswith(pre)), key=lambda k: int(k.split("-")[1]))
-    for i, k in enumerate(tk, 1):
-        if k != f"{pre}{pre.strip()}-{i}":
-            rc = 1; print(f"❌ 規矩 {k}: 雛形の番号が連番でない（期待 {pre.strip()}-{i}）")
-        if tmpl[k] not in live_vals:
-            rc = 1; print(f"❌ 規矩 {k}: 雛形の行が生きている紙に無い {tmpl[k]!r}")
-for k in sorted(set(live) | set(tmpl)):
-    if k[:2] in ("X ", "H "): continue
-    if live.get(k) != tmpl.get(k):
-        rc = 1; print(f"❌ 規矩 {k}: 生 {live.get(k)!r} ／ 雛形 {tmpl.get(k)!r}")
-sys.path.insert(0, os.path.join(root, "scripts")); import kiroku
-states = "｜".join(kiroku.STATES)
-for name in ("メモリシステム.md",):
-    for label, p in (("生", os.path.join(root, ".claude/rules", name)), ("雛形", os.path.join(kit, ".claude/rules", name))):
-        if states not in open(p, encoding="utf-8").read():
-            rc = 1; print(f"❌ {label} {name}: kiroku.STATES（{states}）の並びが載っていない")
-print("✅ drift: 雛形の骨（X・H は部分集合・列・領域・種別・層・state 8 語）は生きている紙と一致" if rc == 0 else "🚨 drift: 雛形が腐っている。scripts/kit/ を直す")
-sys.exit(rc)
-PY
+  echo "ℹ️ drift: 退役（2026-10-13）。配る版は scripts/kit/ に固定してあり、棚の紙・道具とは照合しない"
+  return 0
 }
 
 # ---------- --fill: {名前} を埋める（冪等） ----------
@@ -154,23 +113,11 @@ cut() {
     maybe_copy "scripts/kit/$f" "$f" || rc=1
     copy "scripts/kit/$f" "scripts/kit/$f"        # 雛形も配る＝建てた棚が自分で --selftest を撃て、次の棚を切り出せる
   done
-  # 2) 道具（固定リスト）
-  for b in $KIT_TOOLS; do
-    [ -f "scripts/$b" ] || { echo "  🚨 scripts/${b} が無い（リストと現物がずれている）"; rc=1; continue; }
-    maybe_copy "scripts/$b" "scripts/$b" || rc=1
-  done
-  for b in $KIT_HOOKS; do
-    [ -f "scripts/git-hooks/$b" ] || { echo "  🚨 scripts/git-hooks/${b} が無い"; rc=1; continue; }
-    maybe_copy "scripts/git-hooks/$b" "scripts/git-hooks/$b" || rc=1
-  done
-  for b in $KIT_INGEST; do
-    [ -f "scripts/kit-ingest/$b" ] || { echo "  🚨 scripts/kit-ingest/${b} が無い（リストと現物がずれている）"; rc=1; continue; }
-    maybe_copy "scripts/kit-ingest/$b" "scripts/kit-ingest/$b" || rc=1
-  done
-  for b in $KIT_SMS; do
-    [ -f "scripts/sms/$b" ] || { echo "  🚨 scripts/sms/${b} が無い（リストと現物がずれている）"; rc=1; continue; }
-    maybe_copy "scripts/sms/$b" "scripts/sms/$b" || rc=1
-  done
+  # 2) 道具は 1) で雛形の写し（scripts/kit/scripts/）から配った。⛔ 棚の scripts/ からは写さない（2026-10-13 に切り離した）。ここでは揃っているかだけ見る
+  for b in $KIT_TOOLS; do [ -f "$OUT/scripts/$b" ] || { echo "  🚨 scripts/${b} が器に無い（scripts/kit/scripts/ に写しが無い）"; rc=1; }; done
+  for b in $KIT_HOOKS; do [ -f "$OUT/scripts/git-hooks/$b" ] || { echo "  🚨 scripts/git-hooks/${b} が器に無い"; rc=1; }; done
+  for b in $KIT_INGEST; do [ -f "$OUT/scripts/kit-ingest/$b" ] || { echo "  🚨 scripts/kit-ingest/${b} が器に無い"; rc=1; }; done
+  for b in $KIT_SMS; do [ -f "$OUT/scripts/sms/$b" ] || { echo "  🚨 scripts/sms/${b} が器に無い"; rc=1; }; done
   # pre-commit の親は書き下ろす（生きている方は当社固有の門を 1 本余分に撃つため）
   cat > "$OUT/scripts/git-hooks/pre-commit" <<'SH'
 #!/bin/sh
@@ -219,7 +166,7 @@ GI
 }
 
 # ---------- --numbers: 配る物が指す番号が雛形の規矩に実在するか ----------
-# 🔑 --drift は「雛形 ⊆ 生きている紙」しか見ない ⇒ 主君が器から行を落として番号を振り直した後、
+# 🔑 雛形は生きている紙から行を落として番号を振り直してある ⇒ 主君が器から行を落とした後、
 #   生きている側の番号で書いた配る紙は、会員の棚では別の行を指す（2026-09-20 に 8 箇所で実際に起きた）。
 numbers() {
   [ $# -gt 0 ] || die "--numbers <道…>（ファイルか dir）" 2
@@ -288,7 +235,6 @@ selftest() {
   local kit="$t/kit"
   step() { echo "🔬 $*"; }
   step "1 素の切り出し"; bash "$0" "$kit" > "$t/cut.log" 2>&1 || { cat "$t/cut.log"; die "selftest: 切り出しが exit 0 にならない"; }
-  step "2 drift（雛形の骨）"; bash "$0" --drift || die "selftest: 雛形が生きている紙とずれている"
   step "3 fill（{名前} を埋める・冪等・scripts/ には触れない）"
   ( cd "$kit" && find scripts -type f -exec shasum {} + | sort ) > "$t/scripts.before"
   bash "$0" --fill "$kit" 名前=検体 呼ばれ方=主君 事業名=検体商店 棚の名前=検体の棚 棚の置き場="$kit" "git remote=検体remote" > /dev/null || die "selftest: fill が落ちた"
@@ -390,7 +336,7 @@ selftest() {
     echo "🚨 selftest: README だけを渡したのに合格した（0 本を検査して通っている）"; rm -rf "$t"; exit 3
   fi
   rm -rf "$t"
-  echo "✅ selftest: 切り出し・drift・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）が全部通った"
+  echo "✅ selftest: 切り出し・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）が全部通った"
   exit 0
 }
 

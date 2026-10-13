@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""台帳（09アーカイブ/コンテクスト銀行/_台帳.csv）を作り直す（工程 6）。カード 1 枚＝1 行。全数を指す。
+"""台帳（コンテクスト銀行/_台帳.csv）を作り直す（工程 6）。カード 1 枚＝1 行。全数を指す。
 
 置き場の理由: 抜いた資産は 01〜05 のどこにも散るので、全数の台帳を内容軸の 1 つ（旧 01商品資産/）に置くと
   「内容軸の 1 つの中に全数が居座る」形になる。メモリシステムの規則「台帳の置き場は、そのデータを使う人が
   最初に開くフォルダの直下」に従い、Vault の横へ置く（2026-09-19 主君裁定・帳簿 id=636）。
 
 入力（読むだけ・書き換えない）:
-  <棚>/09アーカイブ/コンテクスト銀行/<key>.md          カード（frontmatter に key・source・id・kind・why・orig_title・duration_min・chars・drive）
+  <棚>/コンテクスト銀行/<key>.md          カード（frontmatter に key・source・id・kind・why・orig_title・duration_min・chars・drive）
   <棚>/01商品資産〜05バックオフィス資産/**/*.md  仕訳先（frontmatter に key）。同じカードが複数に在れば " | " で並べる
 出力:
-  <棚>/09アーカイブ/コンテクスト銀行/_台帳.csv（UTF-8・NFC・列: key,面,種類,id,題,尺分か字数,原本,カード,仕訳先,抜いた理由）
+  <棚>/コンテクスト銀行/_台帳.csv（UTF-8・NFC・列: key,面,種類,id,題,尺分か字数,原本,カード,仕訳先,抜いた理由,正本の在り処,読む口。後ろ 2 列は外に正本が在る物の在り処と今の値を読む道具の名前＝この生成器は空で出す）
   --out で別の出力先に書ける（門の前に別の場所へ作り、通ってから置く）
   `仕訳先` が空の行＝まだ仕訳していない物。`面` で束ねれば「あの会社から抜いた物が全部在るか」が数えられる＝解約の判定
 
@@ -73,11 +73,11 @@ def main(argv):
             rows.append([nfc(fm["key"]), nfc(fm.get("source", "")), nfc(fm.get("kind", "")), nfc(fm.get("id", "")),
                          nfc(fm.get("orig_title", "")), nfc(fm.get("duration_min", "") or fm.get("chars", "")),
                          nfc(fm.get("drive", "")), os.path.relpath(p, a.shelf),
-                         " | ".join(tree.get(fm["key"], [])), nfc(fm.get("why", ""))])
+                         " | ".join(tree.get(fm["key"], [])), nfc(fm.get("why", "")), "", ""])
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["key", "面", "種類", "id", "題", "尺分か字数", "原本", "カード", "仕訳先", "抜いた理由"])
+        w.writerow(["key", "面", "種類", "id", "題", "尺分か字数", "原本", "カード", "仕訳先", "抜いた理由", "正本の在り処", "読む口"])
         w.writerows(rows)
     placed = sum(1 for r in rows if r[8])
     print(f"台帳 {len(rows)} 行 → {out}（仕訳済み {placed}・未仕訳 {len(rows)-placed}）")
