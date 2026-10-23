@@ -31,12 +31,12 @@ GATE="$ROOT/scripts/check-distributable.sh"
 
 # ============================== 配る物（固定リスト。`scripts/*` を舐めない）==============================
 # 当社固有の生成器（course/・register/・経理/・mirror_*.py・build_distribution_ledgers.py ほか）は入れない。足すならここに 1 行
-KIT_TOOLS="kiroku.py build_scope_progress.py build_agent_aliases.py check-distributable.sh make-kit.sh"
+KIT_TOOLS="kiroku.py build_scope_progress.py build_agent_aliases.py check-distributable.sh make-kit.sh honjin.py"
 KIT_HOOKS="pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-commit-box.sh"
 # 資産の引き上げ席が呼ぶ道具（下の 2 行で合わせて 10 本＝kit-ingest 9 ＋ sms 1。無いとその席は配っても最初の門で止まる）
 KIT_INGEST="verify_complete.py fetch_one.py transcribe_loop.py drive_put.py build_ledger.py manifest_add.py inventory_youtube.py verify_cards.py gate.py"
 KIT_SMS="read_code.sh"
-KIT_BOXES="00廷議 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06エージェント資産 06エージェント資産/_便 06エージェント資産/_孔明起動 07学習資産 08プロジェクト
+KIT_BOXES="00朝廷 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06エージェント資産 06エージェント資産/_便 06エージェント資産/_孔明起動 07学習資産 08プロジェクト
 09アーカイブ/案件 09アーカイブ/裁定 コンテクスト銀行 10私用 11一時ファイル"
 # ==================================================================================================
 
@@ -110,6 +110,8 @@ cut() {
   local rc=0 f b
   # 1) 雛形（地図・規則 3 枚・全体像の芯 1 枚・箱の README 3 枚）
   for f in $(cd "$KIT" && find . -type f -not -name '.DS_Store' | sed 's#^\./##' | sort); do
+    # scripts/皆伝/ は皆伝の機体にだけ置く道具（席ごとの作業場所）＝器の写し（scripts/kit/）にだけ入れ、置くのは honjin.py kaiden
+    case "$f" in scripts/皆伝/*) maybe_copy "scripts/kit/$f" "scripts/kit/$f" || rc=1; continue;; esac
     maybe_copy "scripts/kit/$f" "$f" || rc=1
     copy "scripts/kit/$f" "scripts/kit/$f"        # 雛形も配る＝建てた棚が自分で --selftest を撃て、次の棚を切り出せる
   done
@@ -133,6 +135,9 @@ SH
   cat > "$OUT/.gitignore" <<'GI'
 # 見せない物。ここに置いた物は git に載らない
 10私用/
+.env
+.env.local
+.env*.local
 # 途中物。プロジェクトと一緒に消える
 **/一時ファイル/
 # プロジェクトに属さない途中物
@@ -255,14 +260,15 @@ selftest() {
   local kr="$t/kit-r"; cp -R "$kit" "$kr" || die "selftest: 器の写しが作れない"
   mkdir -p "$t/home0" "$t/home/.claude/routine"
   # 負制御: 時計の控えが両方無い → build_agent_aliases は取得不能で 2（0 件として台帳を「消えた」に書き換えない）
-  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home0" python3 scripts/build_agent_aliases.py > "$t/al0.out" 2>&1 )
+  # ⚠️ 台帳を書くのは --write だけ（引数なしは読むだけ＝selftest E）。ここは書き戻しの口を試すので --write で撃つ
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home0" python3 scripts/build_agent_aliases.py --write > "$t/al0.out" 2>&1 )
   if [ $? -ne 2 ]; then cat "$t/al0.out"; echo "🚨 selftest: 時計の控えが無いのに build_agent_aliases.py が 2 で落ちない（取得不能が 0 件に化ける）"; rm -rf "$t"; exit 3; fi
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home0" python3 scripts/build_scope_progress.py --out "$t/sp0.md" 2> /dev/null ) || die "selftest: 控えが無いと build_scope_progress.py が落ちる"
   grep -q '検体の便' "$t/sp0.md" && { echo "🚨 selftest: routine の控えが無いのに §5 に検体の便が出た（どこか別の控えを読んでいる）"; rm -rf "$t"; exit 3; }
   # 陽性対照: routines.json と runs.log だけを置く
   printf '%s\n' '{"version":1,"routines":[{"id":"0c0ffee1","name":"kentai","label":"検体の便","cron":"5 6 * * *","paused":false}]}' > "$t/home/.claude/routine/routines.json"
   printf '%s\n' '{"ts":"2000-01-01T06:05:00+09:00","routine_id":"0c0ffee1","trigger":"os","result":"ok"}' > "$t/home/.claude/routine/runs.log"
-  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_agent_aliases.py > "$t/al1.out" 2>&1 ) || { cat "$t/al1.out"; die "selftest: routine だけの機体で build_agent_aliases.py が exit 0 にならない"; }
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_agent_aliases.py --write > "$t/al1.out" 2>&1 ) || { cat "$t/al1.out"; die "selftest: routine だけの機体で build_agent_aliases.py が exit 0 にならない"; }
   grep -q '^0c0ffee1,5 6 \* \* \*,0605,検体の便,' "$kr/06エージェント資産/_台帳-便.csv" || { cat "$kr/06エージェント資産/_台帳-便.csv"; die "selftest: routine の便が _台帳-便.csv に出ない"; }
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_scope_progress.py --out "$t/sp1.md" 2> "$t/sp1.err" ) || { cat "$t/sp1.err"; die "selftest: routine だけの機体で build_scope_progress.py が落ちた"; }
   sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -q '| 06:05 | 検体の便 | — | routine | 稼働 | .* ok |' || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: routine の便が SCOPE_PROGRESS §5 に出ない（か runs.log の最終発火を読まない）"; }
@@ -272,7 +278,7 @@ selftest() {
   mkdir -p "$t/home/.claude/scheduler"
   printf '%s\n' '{"schedules":[{"id":"5c4ed01e","label":"検体の皆伝便","cron":"30 7 * * *","agent":"検体席","paused":false}]}' > "$t/home/.claude/scheduler/schedules.json"
   printf '%s\n' '{"ts":"2000-01-01T07:30:00+09:00","schedule_id":"5c4ed01e","result":"spawned"}' > "$t/home/.claude/scheduler/fires.log"
-  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_agent_aliases.py > "$t/al2.out" 2>&1 ) || { cat "$t/al2.out"; die "selftest: 両方の控えが在る機体で build_agent_aliases.py が exit 0 にならない"; }
+  ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_agent_aliases.py --write > "$t/al2.out" 2>&1 ) || { cat "$t/al2.out"; die "selftest: 両方の控えが在る機体で build_agent_aliases.py が exit 0 にならない"; }
   { grep -q '^0c0ffee1,' "$kr/06エージェント資産/_台帳-便.csv" && grep -q '^5c4ed01e,30 7 \* \* \*,0730,検体の皆伝便,,検体席,稼働,' "$kr/06エージェント資産/_台帳-便.csv"; } || { cat "$kr/06エージェント資産/_台帳-便.csv"; die "selftest: 両方の控えが在る機体で _台帳-便.csv に片方しか出ない"; }
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_scope_progress.py --out "$t/sp2.md" 2> "$t/sp2.err" ) || { cat "$t/sp2.err"; die "selftest: 両方の控えが在る機体で build_scope_progress.py が落ちた"; }
   { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md" | grep -q '| 06:05 | 検体の便 | — | routine | 稼働 | .* ok |' \
@@ -335,8 +341,75 @@ selftest() {
   if numbers "$t/nc3" > /dev/null 2>&1; then
     echo "🚨 selftest: README だけを渡したのに合格した（0 本を検査して通っている）"; rm -rf "$t"; exit 3
   fi
+  step "9 本陣の形（切り出し → fill → honjin.py lift で本陣＋中の OS・道具が本陣の箱を読む・門が 2 か所で効く）"
+  python3 "$KIT/scripts/honjin.py" selftest > "$t/hj.log" 2>&1 || { cat "$t/hj.log"; die "selftest: honjin.py selftest が exit 0 にならない"; }
+  local hj="$t/hj/本陣" os1; os1="$hj/検体OS"
+  mkdir -p "$hj" && bash "$0" "$os1" > /dev/null 2>&1 || die "selftest: 本陣の中へ切り出せない"
+  bash "$0" --fill "$os1" 名前=検体 呼ばれ方=主君 事業名=検体商店 棚の名前=検体OS 棚の置き場="$os1" "git remote=なし（ローカルだけ）" > /dev/null || die "selftest: 本陣の中で fill が落ちた"
+  python3 "$os1/scripts/honjin.py" lift "$os1" > /dev/null || die "selftest: lift が落ちた"
+  ( cd "$os1" && git init -q && git config core.hooksPath scripts/git-hooks ) || die "selftest: 中の OS の git init"
+  for x in CLAUDE.md .claude/rules/規矩.md 00朝廷 08プロジェクト 09アーカイブ/案件 docs/SCOPE_PROGRESS.md scripts/kiroku.py; do [ -e "$hj/$x" ] || die "selftest: 本陣に ${x} が無い"; done
+  for x in 01商品資産 06エージェント資産/README.md コンテクスト銀行 10私用 11一時ファイル scripts/make-kit.sh; do [ -e "$os1/$x" ] || die "selftest: 中の OS に ${x} が無い"; done
+  [ -e "$os1/00朝廷" ] || [ -e "$os1/08プロジェクト" ] || [ -e "$os1/.claude/rules" ] && die "selftest: 中の OS に本陣の物が残った"
+  ( cd "$hj" && python3 scripts/kiroku.py box --slug 2000-01-01-本陣の検体 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: 本陣で kiroku.py box が落ちた"
+  [ -f "$hj/08プロジェクト/2000-01-01-本陣の検体/status.md" ] || die "selftest: kiroku.py box が本陣の 08プロジェクト に書かない"
+  ( cd "$os1" && python3 scripts/kiroku.py box --slug 2000-01-01-中のOSから --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: 中の OS で kiroku.py box が落ちた"
+  { [ -f "$hj/08プロジェクト/2000-01-01-中のOSから/status.md" ] && [ ! -e "$os1/08プロジェクト" ]; } || die "selftest: 中の OS から撃つと箱を本陣の 08プロジェクト に書かない"
+  ( cd "$hj" && python3 scripts/kiroku.py --check 08プロジェクト > /dev/null ) || die "selftest: 本陣の箱が --check で落ちる"
+  ( cd "$hj" && SCHEDULER_DIR="$t/sched" ROUTINE_DIR="$t/sched" python3 scripts/build_scope_progress.py > /dev/null 2>&1 ) || die "selftest: 本陣で build_scope_progress.py が落ちた"
+  grep -q '2000-01-01-本陣の検体' "$hj/docs/SCOPE_PROGRESS.md" || die "selftest: 全体像が本陣の箱を数えない"
+  [ -e "$os1/docs" ] && die "selftest: 全体像を中の OS に書いた（本陣の docs/ に書く）"
+  ( cd "$hj" && git add -- CLAUDE.md .gitignore scripts .claude/rules/規矩.md 08プロジェクト/2000-01-01-本陣の検体/status.md 08プロジェクト/2000-01-01-中のOSから/status.md && sh scripts/git-hooks/pre-commit ) || die "selftest: 本陣で正しい物の pre-commit が落ちる"
+  ( cd "$os1" && git add -- CLAUDE.md 01商品資産/.gitkeep && sh scripts/git-hooks/pre-commit ) || die "selftest: 中の OS で正しい物の pre-commit が落ちる"
+  mkdir -p "$hj/08プロジェクト/2000-01-02-悪い箱"
+  printf -- '---\ntitle: 悪い箱\nstate: 未着手\nowner: x\nresume: \nnext: \nabsorb: x\ndue: \ntmp_ttl: \nupdated: 2000-01-02\n---\n# 悪い箱\n' > "$hj/08プロジェクト/2000-01-02-悪い箱/status.md"
+  if ( cd "$os1" && sh scripts/git-hooks/pre-commit > /dev/null 2>&1 ); then
+    echo "🚨 selftest: 本陣に語彙外の箱が在るのに中の OS の pre-commit が通った（門が本陣の箱を見ていない）"; rm -rf "$t"; exit 3
+  fi
+  mv "$hj/08プロジェクト/2000-01-02-悪い箱" "$t/悪い箱"
+  step "10 器の更新（3 方向で混ぜる: 会員が足した行は残り・提供元の直しは入る・衝突は当てない）"
+  local nk="$t/新しい器"; bash "$0" "$nk" > /dev/null 2>&1 || die "selftest: 新しい器が切り出せない"
+  printf '\n- 検体: 提供元が足した行\n' >> "$nk/.claude/rules/規矩.md"
+  printf '\n- 検体: 会員が足した行\n' >> "$hj/.claude/rules/メモリシステム.md"
+  python3 "$os1/scripts/honjin.py" update "$hj" "$nk" > "$t/up.log" 2>&1 || { cat "$t/up.log"; die "selftest: update が落ちた"; }
+  local ud; ud=$(ls -d "$os1"/11一時ファイル/器の更新-* | tail -1)
+  grep -q '衝突 0（' "$ud/差分.md" || { cat "$ud/差分.md"; die "selftest: 混ぜられるはずの差分で衝突が出た"; }
+  grep -q '提供元が足した行' "$ud/混ぜた紙/本陣/.claude/rules/規矩.md" || die "selftest: 提供元の直しが混ぜた紙に入らない"
+  [ -e "$ud/混ぜた紙/本陣/.claude/rules/メモリシステム.md" ] && die "selftest: 器が変えていない紙（会員だけが足した）を当てようとした"
+  python3 "$os1/scripts/honjin.py" update "$hj" "$ud" --apply-rules > /dev/null || die "selftest: apply-rules が落ちた"
+  { grep -q '提供元が足した行' "$hj/.claude/rules/規矩.md" && grep -q '会員が足した行' "$hj/.claude/rules/メモリシステム.md"; } || die "selftest: 当てた後に提供元の行か会員の行が無い"
+  # 負制御: 同じ行を会員と提供元が別々に直す → 衝突が出て、apply-rules は当てない
+  local nk2="$t/新しい器2"; bash "$0" "$nk2" > /dev/null 2>&1 || die "selftest: 新しい器 2 が切り出せない"
+  sed -i.bak '1s/.*/# 規矩（提供元が直した見出し）/' "$nk2/.claude/rules/規矩.md"; sed -i.bak '1s/.*/# 規矩（会員が直した見出し）/' "$hj/.claude/rules/規矩.md"
+  python3 "$os1/scripts/honjin.py" update "$hj" "$nk2" > /dev/null 2>&1 || die "selftest: update（衝突）が落ちた"
+  ud=$(ls -d "$os1"/11一時ファイル/器の更新-* | tail -1)
+  if python3 "$os1/scripts/honjin.py" update "$hj" "$ud" --apply-rules > /dev/null 2>&1; then
+    echo "🚨 selftest: 衝突の印が残るのに apply-rules が当てた（門が死んでいる）"; rm -rf "$t"; exit 3
+  fi
+  grep -q '会員が直した見出し' "$hj/.claude/rules/規矩.md" || die "selftest: 衝突で止まったはずなのに会員の紙が書き換わった"
+  step "11 皆伝の道具（席ごとの作業場所: kaiden でだけ置く・外への写しが無いと撃たない・open → push → close）"
+  [ -e "$os1/scripts/honjin_wt.py" ] && die "selftest: 皆伝の道具が初めから置かれている（皆伝の機体にだけ置く）"
+  python3 "$os1/scripts/honjin.py" kaiden "$hj" > /dev/null || die "selftest: kaiden が落ちた"
+  if ( cd "$hj" && python3 scripts/honjin_wt.py open 0123abcd > /dev/null 2>&1 ); then
+    echo "🚨 selftest: 外への写しが無いのに honjin_wt.py open が通った"; rm -rf "$t"; exit 3
+  fi
+  (
+    export GIT_AUTHOR_NAME=検体 GIT_AUTHOR_EMAIL=k@example.invalid GIT_COMMITTER_NAME=検体 GIT_COMMITTER_EMAIL=k@example.invalid
+    for r in "$hj" "$os1"; do
+      cd "$r" && git -c core.quotepath=false ls-files -z --others --exclude-standard | xargs -0 git add -- && git commit -q -m 検体 && \
+        git init -q --bare "$r.git" && git remote add origin "$r.git" && git push -q origin HEAD:main || exit 1
+    done
+    w=$(cd "$hj" && python3 scripts/honjin_wt.py open 0123abcd | tail -1) || exit 1
+    printf -- '- 検体の追記\n' >> "$w/検体OS/01商品資産/検体.md"
+    ( cd "$w" && python3 scripts/kiroku.py box --slug 2000-01-03-席の作業木 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || exit 1
+    ( cd "$w" && python3 scripts/honjin_wt.py push -m 検体 -- 検体OS/01商品資産/検体.md 08プロジェクト/2000-01-03-席の作業木/status.md > /dev/null ) || exit 1
+    git -C "$hj.git" show main:08プロジェクト/2000-01-03-席の作業木/status.md > /dev/null || exit 1
+    git -C "$os1.git" show main:01商品資産/検体.md > /dev/null || exit 1
+    ( cd "$w" && python3 scripts/honjin_wt.py close > /dev/null ) || exit 1
+    [ ! -e "$w" ] || exit 1
+  ) > "$t/wt.log" 2>&1 || { cat "$t/wt.log"; die "selftest: 席ごとの作業場所（open → push → close）が通らない"; }
   rm -rf "$t"
-  echo "✅ selftest: 切り出し・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）が全部通った"
+  echo "✅ selftest: 切り出し・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）・本陣の形（lift・2 か所の門・負制御）・器の更新（3 方向・衝突の負制御）・皆伝の道具（置き方・外への写しの負制御・open/push/close）が全部通った"
   exit 0
 }
 

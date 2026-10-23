@@ -68,7 +68,7 @@ BOX_LEGACY = {"until": "手番（誰が｜何を（期待日 YYYY-MM-DD）｜�
 #                   誰が＝主君 なら 🔬（自分で撃って席では閉じられないと確かめた実測）と本文の `## 決裁待ちの材料` が要る
 #                   誰が＝先方 なら 何を に `期待日 YYYY-MM-DD`
 #   owner           孔明が配車したとき。⛔「主君」「<!-- 要確認 -->」は不可（主君の番は 手番 で表す）
-#   resume          閉じた席。投げ終わった箱の再開の合図。書式 何を｜誰から｜どこで拾う（state 完了 の箱だけ。廷議が毎朝引く）
+#   resume          閉じた席。投げ終わった箱の再開の合図。書式 何を｜誰から｜どこで拾う（state 完了 の箱だけ。朝廷が毎朝引く）
 #   next            持ち主。次の 1 手（1 行）
 #   due・tmp_ttl    作った席（任意）
 #   updated         機械（この道具が commit 時に入れる）
@@ -78,8 +78,12 @@ SEP = "｜"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TTL_RE = re.compile(r"^\d+d$")
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BOX_DIR = os.path.join(ROOT, "08プロジェクト")
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+# 本陣の形（器の版 本陣-1）: 受付・箱・墓標・一覧は中の OS の親＝本陣に在る。古い形（棚 1 つ）なら ROOT のまま。
+#   本陣の scripts は中の OS の scripts への別名なので、どちらから撃っても realpath で中の OS を ROOT に取り、親を見る
+HONJIN = os.environ.get("HONJIN_ROOT") or next((d for d in (os.path.dirname(ROOT), ROOT)
+                                              if os.path.isdir(os.path.join(d, "08プロジェクト"))), ROOT)
+BOX_DIR = os.path.join(HONJIN, "08プロジェクト")
 FM_RE = re.compile(r"^---\n(.*?)\n---\n?", re.S)
 
 
@@ -176,7 +180,7 @@ N_RX = re.compile(r"\bn\s*=\s*(\d+)")
 
 
 def open_box_slugs(self_slug=""):
-    base = os.path.join(ROOT, "08プロジェクト")
+    base = BOX_DIR
     out = []
     if not os.path.isdir(base):
         return out

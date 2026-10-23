@@ -4,6 +4,8 @@
 # 出所: 主君裁定 2026-09-18（帳簿 id=440）「箱の status.md に状態管理を持たせ、SCOPE_PROGRESS で自動的に表になる形にする」
 D=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$D/../.." && pwd)
+# 本陣の形（器の版 本陣-1）: 箱は中の OS の親＝本陣に在る。古い形（棚 1 つ）なら ROOT のまま
+[ -d "$ROOT/../08プロジェクト" ] && ROOT=$(cd "$ROOT/.." && pwd)
 OUT=$(python3 "$D/../kiroku.py" --check "$ROOT/08プロジェクト" 2>&1)
 RC=$?
 if [ "$RC" -ne 0 ]; then

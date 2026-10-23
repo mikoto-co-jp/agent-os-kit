@@ -1,7 +1,7 @@
-<!-- 生成: scripts/build_scope_progress.py／手で編集しない。直すなら元（status.md・00廷議/・時計の控え・墓標）を直す -->
+<!-- 生成: scripts/build_scope_progress.py／手で編集しない。直すなら元（status.md・00朝廷/・時計の控え・墓標）を直す -->
 # 全体像
 
-**この紙は機械が書く。手で直さない。**中身は `python3 scripts/build_scope_progress.py` が、元（`08プロジェクト/*/status.md`・`00廷議/*.md`・時計（routine の控え）・`09アーカイブ/案件/` の墓標）から毎回まるごと書き直す。⇒ ここに手で足した行は次の生成で消える。直したい物が在れば**元を直して撃ち直す**。
+**この紙は機械が書く。手で直さない。**中身は `python3 scripts/build_scope_progress.py` が、元（`08プロジェクト/*/status.md`・`00朝廷/*.md`・時計（routine の控え）・`09アーカイブ/案件/` の墓標）から毎回まるごと書き直す。⇒ ここに手で足した行は次の生成で消える。直したい物が在れば**元を直して撃ち直す**。
 
 節は 8 つ・順は固定・空の節は「（なし）」1 行。型の正本は `scripts/build_scope_progress.py` の docstring。
 
@@ -9,7 +9,7 @@
 
 まだ作られていません。`python3 scripts/build_scope_progress.py` で作られます。
 
-## 2. 裁定表（00廷議/ と箱の 手番＝主君・番号で返す）
+## 2. 裁定表（00朝廷/ と箱の 手番＝主君・番号で返す）
 
 まだ作られていません。`python3 scripts/build_scope_progress.py` で作られます。
 

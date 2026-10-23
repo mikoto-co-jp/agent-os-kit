@@ -10,6 +10,8 @@
 # （docs/requirements.md・docs/DEPLOYMENT.md など）を指すので、この棚に実在しないのが正しい。
 # 出所: 2026-09-19 に 234 枚を git に載せた時 226 件で落ちた。全件が写しの中で、改訂される紙は 0 件だった。
 ROOT=$(git rev-parse --show-toplevel); T=$(mktemp)
+# 本陣の形（器の版 本陣-1）: 中の OS の紙は本陣の物（docs/・.claude/ ほか）も指す＝親が本陣なら親でも測る（古い形は ROOT だけ）
+UP=$ROOT; [ -d "$ROOT/../08プロジェクト" ] && UP=$(cd "$ROOT/.." && pwd)
 git -c core.quotepath=false diff --cached --name-only --diff-filter=ACM -- '*.md' \
  | grep -vE '^(docs/_Operations-Log\.md|docs/SCOPE_PROGRESS\.md|08プロジェクト/|09アーカイブ/|07学習資産/教材ライブラリ/|06エージェント資産/0[0-7][^/]*/|06エージェント資産/_索引-写し\.md|\.claude/記録/)' \
  | while read -r f; do
@@ -20,7 +22,7 @@ git -c core.quotepath=false diff --cached --name-only --diff-filter=ACM -- '*.md
     # まず書かれたままで測り、無ければ注釈を落として測り直す（2026-09-21・帳簿 id=1284。誤検知 3 件で --no-verify が撃たれた）
     p=$(printf '%s' "$p" | sed 's/ -.*//')
     q=$(printf '%s' "$p" | sed 's/[（(].*//; s/ の .*//; s/#.*//; s/[、。].*//')
-    [ -e "$ROOT/$p" ] || [ -e "$ROOT/$q" ] || { echo "❌ $f → 実在しない: $p" >&2; echo 1 >> "$T"; }
+    [ -e "$ROOT/$p" ] || [ -e "$ROOT/$q" ] || [ -e "$UP/$p" ] || [ -e "$UP/$q" ] || { echo "❌ $f → 実在しない: $p" >&2; echo 1 >> "$T"; }
   done
 done
 if [ -s "$T" ]; then rm -f "$T"; echo "↑ 指す前に測る。直すか、パスでない物なら \` \` を外す。強行は --no-verify" >&2; exit 1; fi

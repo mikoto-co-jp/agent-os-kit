@@ -21,11 +21,16 @@
      台帳の全行が `消えた` に書き換わる）。取得不能として終了コード 2 で落ちる。
 
 使い方:
-    python3 scripts/build_agent_aliases.py                 # 時計の控え（routine・在れば scheduler も）→ 台帳 → 箱
-    python3 scripts/build_agent_aliases.py --schedules s.json  # 控えの代わりにこの JSON を読む
-    python3 scripts/build_agent_aliases.py --no-refresh    # 台帳だけで箱を作り直す（控えを読まない）
-    python3 scripts/build_agent_aliases.py --check         # 検査だけ（終了コード 0/1）
+    python3 scripts/build_agent_aliases.py --write         # 時計の控え（routine・在れば scheduler も）→ 台帳 → 箱（台帳を書き戻す）
+    python3 scripts/build_agent_aliases.py --write --schedules s.json  # 控えの代わりにこの JSON を読む
+    python3 scripts/build_agent_aliases.py --no-refresh    # 台帳だけで箱を作り直す（控えを読まない・台帳は書かない）
+    python3 scripts/build_agent_aliases.py --check         # 検査だけ（終了コード 0/1）。引数なしも同じ＝読むだけ
+    python3 scripts/build_agent_aliases.py --drift         # 台帳の 状態 と時計の控えのずれだけ数える（書かない・0/1/2）
     python3 scripts/build_agent_aliases.py --selftest      # 負制御（検査が落ちるか）
+
+🩸 2026-10-19: 引数なしで撃つと台帳を時計の控えで書き戻していた＝門のつもりで撃った席が、別の機体の予約 50 本を台帳に
+   書き込みかけた。⇒ 台帳を書くのは `--write` だけ。
+   引数なし・`--check` は台帳も箱も触らない（`--selftest` の E が台帳の差 0 を確かめる）。
 
 終了コード: 0 = 正常 ／ 1 = 検査に落ちた ／ 2 = 台帳か時計の控え（routine・scheduler のどちらも）が読めない
 """
@@ -33,6 +38,12 @@ import argparse, csv, json, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(os.environ.get("MIKOTO_OS_ROOT") or Path(__file__).resolve().parents[1])
+# 棚の親に総本部の箱が在る形（親に 08プロジェクト/ が在る）では、正本が docs/ を指す行は親から引く。無ければ棚そのもの
+HONJIN = ROOT.parent if (ROOT.parent / "08プロジェクト").is_dir() else ROOT
+
+
+def _at(tgt):
+    return ROOT / tgt if (ROOT / tgt).exists() or not (HONJIN / tgt).exists() else HONJIN / tgt
 SHELF = "06エージェント資産"
 BIN_BOX, KOMEI_BOX = "_便", "_孔明起動"
 BIN_LEDGER, KOMEI_LEDGER = "_台帳-便.csv", "_台帳-孔明起動.csv"
@@ -44,7 +55,7 @@ KOMEI_README = """# _孔明起動 — 孔明が起動したら一緒に起きる
 | 何 | 中身 |
 |---|---|
 | 何がここに入るか | 孔明が起動したときに、時刻に依らず一緒に起きる席 |
-| 誰が入れるか | 孔明（台帳 `_台帳-孔明起動.csv` に 1 行足して `scripts/build_agent_aliases.py` を撃つ） |
+| 誰が入れるか | 孔明（台帳 `_台帳-孔明起動.csv` に 1 行足して `scripts/build_agent_aliases.py --no-refresh` を撃つ） |
 | `_便/` との違い | `_便/` は時計（routine・皆伝なら scheduler も）が時刻で起こす物。⛔ **同じ席を両方に置かない**（二重起動）。検査が数える |
 
 ⚠️ この紙は生成器が**無いときだけ**書く。ここに棚ごとの事情（1 号は誰か・いつ建てたか）を足してよい。
@@ -116,7 +127,8 @@ def refresh_from_schedules(shelf: Path, sources: list):
         r["状態"] = "止まっている" if s.get("paused") else "稼働"
     live = {str(s.get("id", ""))[:8] for s in scheds}
     for r in rows:
-        if r["id"] not in live and r["状態"] != "消えた":
+        # 「退役」＝消えた訳を帳簿か予約の記録で確かめた「消えた」（人が書く・この道具は書き戻さない）
+        if r["id"] not in live and r["状態"] not in ("消えた", "退役"):
             r["状態"] = "消えた"; gone.append(r["id"])
     rows.sort(key=lambda r: (r["時刻"] or "9999", r["便"]))
     with led.open("w", encoding="utf-8", newline="") as f:
@@ -125,6 +137,20 @@ def refresh_from_schedules(shelf: Path, sources: list):
         for r in rows:
             w.writerow({k: r.get(k, "") for k in fields})
     return added, gone
+
+
+def drift(shelf: Path, sources: list):
+    """台帳の 状態 と時計の控えのずれ（書かない）。🩸 巡回の便が一時停止のまま台帳だけ「稼働」と言い続けた＝書き戻しを撃たないと
+    台帳は腐る。この口は毎朝の門で撃つ物。戻りはずれの行の list（空＝合っている）。"""
+    want = {}
+    for s in (s for src in sources for s in read_clock(src)):
+        want[str(s.get("id", ""))[:8]] = "止まっている" if s.get("paused") else "稼働"
+    bad = []
+    for r in read_ledger(shelf / BIN_LEDGER):
+        w = want.get(r["id"], "消えた")
+        if r.get("状態", "") != w and not (w == "消えた" and r.get("状態", "") == "退役"):
+            bad.append(f"❌ {r['id']} {r.get('便','?')}: 台帳は「{r.get('状態','')}」・時計は「{w}」")
+    return bad
 
 
 def rebuild(shelf: Path, quiet=False):
@@ -137,7 +163,7 @@ def rebuild(shelf: Path, quiet=False):
         tgt, t = (r.get("正本") or "").strip(), (r.get("時刻") or "").strip()
         if not tgt:
             skipped.append(f"{BIN_BOX}: {r.get('便','?')}（正本が空: {r.get('備考','') or '未定'}）"); continue
-        if not (ROOT / tgt).exists():
+        if not _at(tgt).exists():
             skipped.append(f"{BIN_BOX}: {r.get('便','?')}（正本が実在しない: {tgt}）"); continue
         plans[BIN_BOX].append((f"{t or '____'}-{safe(r['便'])}.md", tgt))
 
@@ -145,7 +171,7 @@ def rebuild(shelf: Path, quiet=False):
         tgt = (r.get("正本") or "").strip()
         if not tgt:
             skipped.append(f"{KOMEI_BOX}: {r.get('席','?')}（正本が空）"); continue
-        if not (ROOT / tgt).exists():
+        if not _at(tgt).exists():
             skipped.append(f"{KOMEI_BOX}: {r.get('席','?')}（正本が実在しない: {tgt}）"); continue
         plans[KOMEI_BOX].append((f"{safe(r['席'])}.md", tgt))
 
@@ -159,7 +185,7 @@ def rebuild(shelf: Path, quiet=False):
             elif f.name not in ("README.md",):
                 skipped.append(f"{box}: 実体が居座っている（消していない）: {f.name}")
         for name, tgt in sorted(items):
-            rel = os.path.relpath(ROOT / tgt, d)    # 相対だけ。⛔ 絶対パスを焼かない
+            rel = os.path.relpath(_at(tgt), d)    # 相対だけ。⛔ 絶対パスを焼かない
             (d / name).symlink_to(rel)
             made += 1
             if not quiet:
@@ -216,27 +242,62 @@ def selftest():
         (shelf / BIN_BOX / "実体.md").write_text("これは symlink ではない")
         if not any("実体が居る" in x for x in check(shelf)):
             print("❌ selftest D: 実体の居座りを検出しなかった"); return 1
-        print("✅ selftest 4 段（A 健全で通る・B 迷子で落ちる・C 二重起動で落ちる・D 実体で落ちる）")
+        if (e := _selftest_readonly(tmp)):
+            print(e); return 1
+        print("✅ selftest 5 段（A 健全で通る・B 迷子で落ちる・C 二重起動で落ちる・D 実体で落ちる・"
+              "E 引数なしと --check は台帳を書かず --write だけが書く）")
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _selftest_readonly(tmp: Path):
+    """E: 台帳と食い違う時計の控えを置いて、引数なし・--check で台帳の差が 0、--write で差が出る（陽性対照）ことを確かめる。
+    別プロセスで撃つ（ROOT は起動時に決まるので MIKOTO_OS_ROOT で検体の棚へ向ける）。戻りは失敗の文か None。"""
+    root = tmp / "E"; shelf = root / SHELF
+    (shelf / BIN_BOX).mkdir(parents=True); (shelf / KOMEI_BOX).mkdir()
+    led = shelf / BIN_LEDGER
+    led.write_text("id,cron,時刻,便,正本,agent,状態,備考\n", encoding="utf-8")
+    clock = tmp / "clock.json"
+    clock.write_text(json.dumps({"schedules": [{"id": "0c0ffee1", "label": "検体の便", "cron": "5 6 * * *"}]}), encoding="utf-8")
+    env = {**os.environ, "MIKOTO_OS_ROOT": str(root), "SCHEDULER_STATE": str(clock)}
+    before = led.read_bytes()
+    for args in ([], ["--check"]):
+        subprocess.run([sys.executable, __file__, *args], env=env, capture_output=True)
+        if led.read_bytes() != before:
+            return f"❌ selftest E: {' '.join(args) or '引数なし'} で台帳が書き換わった＝門が読むだけでない"
+    subprocess.run([sys.executable, __file__, "--write"], env=env, capture_output=True)
+    if b"0c0ffee1" not in led.read_bytes():
+        return "❌ selftest E: --write で台帳が書かれなかった＝E の差 0 は何も測っていない（陽性対照が落ちた）"
+    return None
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--schedules", help="時計の控えの代わりに読む JSON（schedules.json か routines.json。既定は自分で見つける）")
     ap.add_argument("--no-refresh", action="store_true", help="控えを読まず、台帳だけで箱を作り直す")
-    ap.add_argument("--check", action="store_true", help="検査だけ")
+    ap.add_argument("--check", action="store_true", help="検査だけ（引数なしも同じ・何も書かない）")
+    ap.add_argument("--write", action="store_true", help="時計の控えで台帳を書き戻し、箱を作り直す（台帳を書くのはこれだけ）")
     ap.add_argument("--selftest", action="store_true", help="負制御")
+    ap.add_argument("--drift", action="store_true", help="台帳の 状態 と時計の控えのずれだけ数える（書かない）")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
     shelf = ROOT / SHELF
     if not shelf.is_dir():
         print(f"❌ 棚が無い: {shelf}"); return 2
-    if a.check:
+    if a.check or not (a.write or a.no_refresh):
+        if a.schedules:
+            print("⚠️ --schedules は --write と一緒のときだけ読む（今は検査だけ）")
         bad = check(shelf)
         print("\n".join(bad) if bad else "✅ 検査 0 件（迷子なし・二重起動なし・実体の居座りなし）")
+        return 1 if bad else 0
+    if a.drift:
+        srcs = ([Path(a.schedules)] if Path(a.schedules).exists() else []) if a.schedules else clock_states()
+        if not srcs:
+            print("❌ 取得不能（時計の控えが無い）"); return 2
+        bad = drift(shelf, srcs)
+        print("\n".join(bad) if bad else f"✅ ずれ 0 件（台帳の 状態 が時計の控え {'・'.join(map(str, srcs))} と一致）")
         return 1 if bad else 0
     if not a.no_refresh:
         srcs = ([Path(a.schedules)] if Path(a.schedules).exists() else []) if a.schedules else clock_states()

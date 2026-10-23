@@ -7,14 +7,13 @@
    ask／lever／until は退役。§2〜§4 はどれも 手番 の『誰が』1 本から仕分ける＝誰のボールかを 2 か所で持たない）
   1. プロジェクト     08プロジェクト/*/status.md を state 別（起案／実行中／完了）の表＝箱｜owner｜手番（誰が）｜next｜updated。
                       status.md の無い箱・語彙外の state は赤。09アーカイブ/案件/ の凍結箱は末尾に一覧
-  2. 裁定表           00廷議/*.md の全数（手番 の『誰が』＝主君 の紙。孔明 の紙は「孔明が裁く（うけつけ）」に別に出す・手番なしは差し戻し）
+  2. 裁定表           00朝廷/*.md の全数（手番 の『誰が』＝主君 の紙。孔明 の紙は「孔明が裁く（うけつけ）」に別に出す・手番なしは差し戻し）
                       ＋ 手番 の『誰が』＝主君 の箱のうち、本文 `## 決裁待ちの材料` に 選択肢 が在る物（問い｜選択肢｜推奨｜決めないと）。
                       束ねない。推奨なしは差し戻し
-                      ＋ 定点の窓口（DESKS の status.md）の ask も同じ書式で載せる（08プロジェクト/ の外に居る終わりの無い箱・まだ旧書式。
-                      2026-09-21 主君裁定 ③C・00廷議/2026-09-19-棚-答えが返っていない問いの全数.md §4-3）
+                      ＋ 定点の窓口（DESKS の status.md）の ask も同じ書式で載せる（08プロジェクト/ の外に居る終わりの無い箱・まだ旧書式）
   3. 主君の手         手番 の『誰が』＝主君 の箱のうち、材料に 選択肢 が無い物（体を動かす頼み）＝箱｜何を｜🔬 実測
   4. 待ち受け         手番 の『誰が』が 主君 以外の箱＝箱｜誰が｜何を｜期待日（何を の `期待日 YYYY-MM-DD`。今日を過ぎていれば 🔴）
-                      ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。廷議が毎朝 1 件ずつ引く・帳簿 id=475）
+                      ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。朝廷が毎朝 1 件ずつ引く）
   5. Routine          時計の控え＝routine の ~/.claude/routine/routines.json（初伝から使える既定の時計）と、
                       皆伝の機体なら scheduler の ~/.claude/scheduler/schedules.json も。在る方を全部読んで 1 表に合わせる
                       （片方だけの機体で足りる・--schedules <json> で 1 本に差し替え可）。最終発火は控えの隣の runs.log／fires.log。
@@ -24,11 +23,10 @@
                       ⚠️ Python から口は撃てる（scripts/mcplib.py・2026-09-20 実測）が、**帳簿に便ごとの実行を読む口が無い**。
                       全便が同じ席名 `scheduler` で書く決まりなので `run_last` は席単位でしか引けない（⇒ 便ごとに分けられない）。
                       ⇒ 便が run_end と同時に置く 11一時ファイル/便の実行-YYYY-MM.tsv を読む（--runs で差し替え可）。
-                      口の不足は 00廷議/2026-09-20-棚-道具が時計と帳簿に自分で聞けない.md で起票済み。
                       正本は帳簿・この tsv は 7 日で消える窓。tsv が無ければ全便「取得不能（tsv なし）」と出す（0 件とは書かない）
   6. エージェント（席） 06エージェント資産/_索引-写し.md の箱ごとの体数 ＋ --monsters <json>（list_monsters の結果）
   7. 完了（30 日）    09アーカイブ/案件/*.md の墓標
-  8. 棚の差分         数だけ（08プロジェクト・00廷議・一段目のみ。深い走査はしない）
+  8. 棚の差分         数だけ（08プロジェクト・00朝廷・一段目のみ。深い走査はしない）
 
 --check: 自己一致。①生成器の語彙が kiroku.STATES と同じ ②08プロジェクト/ の全箱が kiroku --check を通る
         ③箱から作る節（1〜4）を今の docs/SCOPE_PROGRESS.md と比べて一致（生成し直しが要るなら exit 1）
@@ -48,24 +46,30 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import kiroku  # 語彙表の正本（STATES・BOX_KEYS・parse_frontmatter・check_one）
 
 ROOT = os.environ.get("MIKOTO_OS_ROOT") or os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__)))
-OUT_DEFAULT = os.path.join(ROOT, "docs", "SCOPE_PROGRESS.md")
+    os.path.dirname(os.path.realpath(__file__)))
+# 本陣の形（器の版 本陣-1）: 受付・箱・墓標・一覧は中の OS の親＝本陣に在る。古い形（棚 1 つ）なら ROOT のまま
+HONJIN = kiroku.HONJIN if not os.environ.get("MIKOTO_OS_ROOT") else (
+    os.environ.get("HONJIN_ROOT") or next((d for d in (os.path.dirname(ROOT), ROOT)
+                                          if os.path.isdir(os.path.join(d, "08プロジェクト"))), ROOT))
+OUT_DEFAULT = os.path.join(HONJIN, "docs", "SCOPE_PROGRESS.md")
 # 時計の控え。routine（初伝から使える既定の時計）は全機体、scheduler は皆伝の機体だけに在る。在る方を全部読む
 ROUTINE_DIR = os.environ.get("ROUTINE_DIR") or os.path.expanduser("~/.claude/routine")
 SCHED_DIR = os.environ.get("SCHEDULER_DIR") or os.path.expanduser("~/.claude/scheduler")
-PROJ = os.path.join(ROOT, "08プロジェクト")
-APPROVE = os.path.join(ROOT, "00廷議")
+PROJ = os.path.join(HONJIN, "08プロジェクト")
+# 受付。古い形の棚（更新の前）は 00廷議 のまま在ることがある＝在る方を読む（両方無ければ 00朝廷）
+APPROVE = next((p for p in (os.path.join(HONJIN, "00朝廷"), os.path.join(HONJIN, "00廷議")) if os.path.isdir(p)),
+               os.path.join(HONJIN, "00朝廷"))
 # 定点の窓口＝終わりの無い箱。08プロジェクト/ には置かないが、status.md の ask は §2 裁定表に載せる（書式は箱と同じ）
 DESKS = [os.path.join(ROOT, "04オペレーション資産", "customer", "サポート", "status.md")]
-GRAVES = os.path.join(ROOT, "09アーカイブ", "案件")
+GRAVES = os.path.join(HONJIN, "09アーカイブ", "案件")
 # その便を回す席の本文が在るか（§5 の「手順書」列）。2026-09-20 に「便という種類をやめて席に一本化する」で
 # 正本は 06エージェント資産/_便/（{HHMM}-{便}.md のエイリアス）へ移った。docs/定期便-手順/ は畳む途中の棚のためだけに残す
 PROC_DIRS = [os.path.join(ROOT, "06エージェント資産", "_便"),
-             os.path.join(ROOT, "docs", "定期便-手順")]
+             os.path.join(HONJIN, "docs", "定期便-手順")]
 RUNS = os.path.join(ROOT, "11一時ファイル")   # 便が run_end と同時に置く tsv（7 日で消える窓。正本は帳簿）
 PROMPTS = os.path.join(ROOT, "06エージェント資産")
 PROMPT_INDEX = os.path.join(PROMPTS, "_索引-写し.md")   # ⛔ 人が書く _索引.md ではない
@@ -212,8 +216,8 @@ def split3(v):
 # ---------- 2. 裁定表 ----------
 
 def read_council(projects):
-    """00廷議/*.md（正） ＋ 手番=主君 の箱の材料 ＋ 窓口の ask。推奨なしは表に入れず差し戻し。
-    00廷議 の紙は 手番 の『誰が』で分ける: 主君＝裁定表／孔明＝うけつけ（孔明が受けるか断るかを裁く）／手番なし＝差し戻し"""
+    """00朝廷/*.md（正） ＋ 手番=主君 の箱の材料 ＋ 窓口の ask。推奨なしは表に入れず差し戻し。
+    00朝廷 の紙は 手番 の『誰が』で分ける: 主君＝裁定表／孔明＝うけつけ（孔明が受けるか断るかを裁く）／手番なし＝差し戻し"""
     items, sent_back, koumei = [], [], []
 
     for p in sorted(glob.glob(os.path.join(APPROVE, "*.md"))):
@@ -241,7 +245,7 @@ def read_council(projects):
         elif dare == "孔明":
             koumei.append(row)
         else:
-            sent_back.append((seat, base, "手番なし（主君か孔明か）" if not dare else f"手番 の誰が が {dare}（00廷議 は 主君 か 孔明）"))
+            sent_back.append((seat, base, "手番なし（主君か孔明か）" if not dare else f"手番 の誰が が {dare}（00朝廷 は 主君 か 孔明）"))
 
     # 手番=主君 の箱の材料（選択肢が在る物＝裁定。無い物は §3 主君の手）
     for r in projects:
@@ -642,7 +646,7 @@ def read_done():
                     absorb = c[1]
                     break
         out.append({"closed": closed, "title": title, "absorb": absorb,
-                    "grave": os.path.relpath(p, ROOT)})
+                    "grave": os.path.relpath(p, HONJIN)})
     out.sort(key=lambda r: r["closed"], reverse=True)
     return out
 
@@ -710,7 +714,7 @@ def build(args):
     late = sum(1 for r in untils if r["late"])
 
     L = [f"<!-- 生成: scripts/build_scope_progress.py／{dt.datetime.now():%Y-%m-%d %H:%M}"
-         "／手で編集しない。直すなら元（status.md・00廷議/・時計の控え・墓標）を直す -->",
+         "／手で編集しない。直すなら元（status.md・00朝廷/・時計の控え・墓標）を直す -->",
          f"# 全体像 — {dt.date.today():%Y-%m-%d}",
          "",
          f"数字: 箱 {len(projects)}（" + "・".join(f"{s} {n[s]}" for s in STATES if n[s]) 
@@ -744,7 +748,7 @@ def build(args):
                 for r in bad])
     L += ["", f"凍結（09アーカイブ/案件/ の箱・再点火は主君）: " + ("・".join(frozen) if frozen else "（なし）")]
 
-    L += ["", "## 2. 裁定表（00廷議/ と箱の 手番＝主君・番号で返す）", ""]
+    L += ["", "## 2. 裁定表（00朝廷/ と箱の 手番＝主君・番号で返す）", ""]
     L += table("| # | 席 | 問い | 推奨 | 期限 | 決めないと |",
                [f"| {CIRCLED[i] if i < len(CIRCLED) else '(' + str(i + 1) + ')'} | "
                 f"{cell(r['seat'], 20)}{r['note']} | {cell(r['q'], 70)} | "
@@ -752,7 +756,7 @@ def build(args):
                 for i, r in enumerate(items)])
     L += ["", f"（差し戻し: {len(sent_back)} 件）", ""]
     L += [f"- **差し戻し**: {cell(s, 20)}｜{cell(w, 50)}｜理由＝{why}" for s, w, why in sent_back] or ["- 差し戻し: （なし）"]
-    L += ["", f"### 孔明が裁く（00廷議/ のうけつけ・手番＝孔明）（{len(koumei)}）", ""]
+    L += ["", f"### 孔明が裁く（00朝廷/ のうけつけ・手番＝孔明）（{len(koumei)}）", ""]
     L += table("| 席 | 問い | 推奨 |",
                [f"| {cell(r['seat'], 20)} | {cell(r['q'], 70)} | {cell(r['rec'], 40) or '—'} |" for r in koumei])
 
@@ -799,7 +803,7 @@ def build(args):
     L += ["", "## 8. 棚の差分（§1 の手 1）", "",
           f"status.md 無し {shelf['no_status']}／語彙外 {n['語彙外']}／`一時ファイル` の外の実体（5 MB 超）{shelf['big']}"
           f"／pre-commit {'あり' if shelf['hook'] else '**なし**'}"
-          f"／00廷議 {'あり' if shelf['approve'] else '**なし**'}"
+          f"／00朝廷 {'あり' if shelf['approve'] else '**なし**'}"
           f"／11一時ファイル {'あり' if shelf['tmp'] else '**なし**'}"]
     if shelf["big_list"]:
         L += ["", "- 実体: " + " / ".join(shelf["big_list"])]
@@ -840,12 +844,12 @@ def cmd_check(args):
         print(f"✅ 箱: {len(boxes)}/{len(boxes)} が kiroku --check を通る")
     lines, _ = build(args)
     if not os.path.exists(args.out):
-        print(f"❌ {os.path.relpath(args.out, ROOT)} が無い（生成が要る）"); return 1
+        print(f"❌ {os.path.relpath(args.out, HONJIN)} が無い（生成が要る）"); return 1
     now = open(args.out, encoding="utf-8").read().splitlines()
     if box_sections(lines) != box_sections(now):
-        print(f"❌ 一致しない: 箱から作る節（§1〜§4）が {os.path.relpath(args.out, ROOT)} と違う（生成し直しが要る）"); rc = 1
+        print(f"❌ 一致しない: 箱から作る節（§1〜§4）が {os.path.relpath(args.out, HONJIN)} と違う（生成し直しが要る）"); rc = 1
     else:
-        print(f"✅ 一致: 箱から作る節（§1〜§4）が {os.path.relpath(args.out, ROOT)} と同じ")
+        print(f"✅ 一致: 箱から作る節（§1〜§4）が {os.path.relpath(args.out, HONJIN)} と同じ")
     return rc
 
 
