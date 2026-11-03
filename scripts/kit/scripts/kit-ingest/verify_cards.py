@@ -21,7 +21,7 @@ def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", required=True); ap.add_argument("--shelf", required=True)
     a = ap.parse_args(argv)
-    cards = os.path.join(a.shelf, "09アーカイブ", "カード")
+    cards = os.path.join(a.shelf, "コンテクスト銀行")   # 2026-09-20 の改名の後の置き場
     n = 0; bad = []
     for name in sorted(os.listdir(cards)) if os.path.isdir(cards) else []:
         if not name.endswith(".md") or name == "README.md":

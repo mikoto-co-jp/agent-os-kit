@@ -653,6 +653,29 @@ def read_done():
 
 # ---------- 8. 棚の差分 ----------
 
+def has_pre_commit(shelf):
+    """その棚で pre-commit の門が効くか。core.hooksPath が指していれば <棚>/<hooksPath>/pre-commit、
+    指していなければ git の hooks（作業木でも正しい道＝rev-parse --git-path）。在って実行可なら True"""
+    import subprocess
+
+    def git(*a):
+        try:
+            r = subprocess.run(["git", "-C", shelf, *a], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    hp = git("config", "core.hooksPath")
+    if hp:
+        hp = os.path.expanduser(hp)
+        fp = os.path.join(hp if os.path.isabs(hp) else os.path.join(shelf, hp), "pre-commit")
+    else:
+        gp = git("rev-parse", "--git-path", "hooks/pre-commit")
+        fp = (gp if os.path.isabs(gp) else os.path.join(shelf, gp)) if gp else \
+            os.path.join(shelf, ".git", "hooks", "pre-commit")
+    return os.path.isfile(fp) and os.access(fp, os.X_OK)
+
+
 def read_shelf(no_status):
     big = []
     for base in (PROJ, APPROVE):
@@ -675,7 +698,8 @@ def read_shelf(no_status):
             except OSError:
                 pass
     return {"no_status": len(no_status), "big": len(big), "big_list": big[:5],
-            "hook": os.path.exists(os.path.join(ROOT, ".git", "hooks", "pre-commit")),
+            "hook": all(has_pre_commit(d) for d in dict.fromkeys(
+                os.path.realpath(p) for p in (ROOT, HONJIN))),
             "approve": os.path.isdir(APPROVE),
             "tmp": os.path.isdir(os.path.join(ROOT, "11一時ファイル"))}
 

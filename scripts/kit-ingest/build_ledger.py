@@ -48,7 +48,7 @@ def main(argv):
     ap.add_argument("--shelf", required=True)
     ap.add_argument("--out", default="")
     a = ap.parse_args(argv)
-    cards_dir = os.path.join(a.shelf, "09アーカイブ", "カード")
+    cards_dir = os.path.join(a.shelf, "コンテクスト銀行")   # 2026-09-20 の改名の後の置き場
     out = a.out or os.path.join(cards_dir, "_台帳.csv")
     tree = {}
     for box in DOMAINS:

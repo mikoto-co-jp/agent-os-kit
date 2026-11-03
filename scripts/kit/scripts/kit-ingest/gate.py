@@ -96,7 +96,7 @@ def selftest():
     work = os.path.join(t, "work"); shelf = os.path.join(t, "shelf")
     for d in ("manifest", "media/x", "text/x", "placed/x"):
         os.makedirs(os.path.join(work, d))
-    os.makedirs(os.path.join(shelf, "09アーカイブ", "カード")); os.makedirs(os.path.join(shelf, "01商品資産", "検体講座"))
+    os.makedirs(os.path.join(shelf, "コンテクスト銀行")); os.makedirs(os.path.join(shelf, "01商品資産", "検体講座"))
     with open(os.path.join(work, "manifest", "x.tsv"), "w", encoding="utf-8") as f:
         f.write("source\tid\turl\tsize_bytes\tduration_sec\ttitle\tcontainer\tfetched_at\n")
         for i in ("a1", "-b2"):
@@ -106,11 +106,11 @@ def selftest():
         open(os.path.join(work, "text", "x", i + ".txt"), "w").write("検体の文字\n")
         json.dump({"lines_per_min": 20, "no_audio": False}, open(os.path.join(work, "text", "x", i + ".meta.json"), "w"))
         open(os.path.join(work, "placed", "x", i + ".ok"), "w").write("md5\n")
-        open(os.path.join(shelf, "09アーカイブ", "カード", f"x-{i}.md"), "w", encoding="utf-8").write(
+        open(os.path.join(shelf, "コンテクスト銀行", f"x-{i}.md"), "w", encoding="utf-8").write(
             f"---\nkey: x-{i}\nsource: x\nid: \"{i}\"\norig_title: 検体 {i}\nduration_min: 0\ndrive: 検体/x/{i}.wav\n---\n## 文字起こし\n検体の文字\n")
         open(os.path.join(shelf, "01商品資産", "検体講座", f"{i}.md"), "w", encoding="utf-8").write(f"---\nkey: x-{i}\n---\n検体の文字\n")
     import subprocess
-    ledger = os.path.join(shelf, "09アーカイブ", "カード", "_台帳.csv")
+    ledger = os.path.join(shelf, "コンテクスト銀行", "_台帳.csv")
     subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_ledger.py"), "--shelf", shelf],
                    check=True, capture_output=True)
     print("== 正の対照（2 本そろっている）")
@@ -145,7 +145,7 @@ def main(argv):
         return selftest()
     if not (a.work and a.shelf):
         ap.error("--work と --shelf が要る（または --selftest）")
-    ledger = a.ledger or os.path.join(a.shelf, "09アーカイブ", "カード", "_台帳.csv")
+    ledger = a.ledger or os.path.join(a.shelf, "コンテクスト銀行", "_台帳.csv")
     return report(*count(a.work, a.shelf, ledger, a.allow_dryrun, a.tol))
 
 
