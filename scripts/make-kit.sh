@@ -300,6 +300,8 @@ selftest() {
   for b in $KIT_INGEST; do
     [ -f "$kit/scripts/kit-ingest/$b" ] || die "selftest: 器に scripts/kit-ingest/${b} が入っていない"
   done
+  # カードの検品は ffprobe が要らない＝毎回撃つ（_ で始まる紙を数えない・壊れたカードは落ちる の両方）
+  ( cd "$kit" && python3 scripts/kit-ingest/verify_cards.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/verify_cards.py --selftest が exit 0 にならない" 3
   for b in $KIT_SMS; do
     [ -x "$kit/scripts/sms/$b" ] || die "selftest: 器に scripts/sms/${b} が入っていない（か実行できない）"
   done
