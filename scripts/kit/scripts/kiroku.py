@@ -15,11 +15,14 @@ BOX_KEYS はこの棚の箱の鍵で、CTO の箱の鍵（n・配車・repo・sc
   --check   紙が語彙表に合うか（exit 0/1・理由）。パスが箱の親フォルダなら、配下の全箱を検め、status.md の無い箱も exit 1
             python3 scripts/kiroku.py --check 08プロジェクト
             python3 scripts/kiroku.py --check 08プロジェクト/*/status.md
+  kotae     答え済みの手番を残さない（巡回の席が毎周撃つ）。既定は並べるだけ・--apply で 手番 を空にして next に答えの id を書く
+            結び方は器（CTO リポ scripts/kiroku.py の kotae）と同じ: 手番の『何を』の「答えの紙 <紙> … <鍵>」を帳簿の 焼き先＝答え の行に探す
+            python3 scripts/kiroku.py kotae 08プロジェクト [--apply]
   --vocab-diff <CTO の kiroku.py>   2 つの語彙表（STATES）を比べ、食い違えば exit 1（門）
             python3 scripts/kiroku.py --vocab-diff <CTO リポ>/scripts/kiroku.py
             BOX_KEYS は設計上別なので情報表示だけ（孔明裁定 2026-09-18・帳簿 id=450）
 """
-import argparse, ast, datetime as dt, os, re, sys
+import argparse, ast, datetime as dt, json, os, re, sys
 
 # ============================== 語彙表（ここ 1 か所） ==============================
 # 箱の state（4 語）。CTO リポ scripts/kiroku.py の STATES と同じ語彙表（門: --vocab-diff）
@@ -229,6 +232,82 @@ def why_hoka(raw, self_slug=""):
             "＝計器は「席がいない（紙を指している）」と出す。開発の陣の着地を待つなら 先方｜…（期待日 YYYY-MM-DD）"]
 
 
+# ---------- 答え済みの手番（kotae・巡回の席が撃つ）----------
+# 結び方は器（CTO リポ scripts/kiroku.py の kotae・会員の差分 n137 を器の正本にした・CTO 箱 n=4584）と同じ:
+#   手番の『誰が』が 主君 の箱だけを見る。『何を』に書いた「答えの紙 <紙> … <鍵>」を、帳簿の 焼き先＝答え の行の 対象 に探す。
+#   紙＝「答えの紙」の直後の語（8 字の英数字か 11/08 の形の日付）。鍵＝『何を』の中の小文字の語（URL と道は数えない）。
+#   ⛔ 鍵が全部揃った箱だけ変える（一部なら変えずに残りの鍵を出す・鍵の無い手番は「結べない」と出して変えない）。
+#   ⛔ 焼き先が 答え の行だけを答えに数える（一度きり・訂正→N・在庫は数えない＝空にし過ぎると主君の問いが黙って消える）。
+#   ⛔ 帳簿に届かない・返りが切れて鍵を確かめきれない＝測れない＝1 字も書かずに exit 2。
+# 🩸 帳簿の問いの口を引く版は、その口が帳簿の側で消えた後、毎周 rc=2 で 1 度も効いていなかった（CTO 箱 n=4587）。
+# 試験は KIROKU_KOTAE_STUB＝{"<鍵>": "<ledger_search の返りの本文>"} の JSON の道（"fail" で届かない回）。
+KOTAE_SHEET_RX = re.compile(r"答えの紙\s*(\d{1,2}/\d{1,2}|(?=[0-9A-Za-z]*[A-Za-z])[0-9A-Za-z]{8})(?![0-9A-Za-z/])")
+KOTAE_KEY_RX = re.compile(r"(?<![A-Za-z0-9_./-])[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?![A-Za-z0-9_./-])")
+KOTAE_DROP_RX = re.compile(r"https?://\S+|~?/[^\s（）()・]+")
+KOTAE_MARK = "答え"
+KOTAE_LIMIT = 50
+
+
+def kotae_keys(what):
+    """手番の『何を』→ (紙, [鍵])。結べなければ (None, 理由)（純関数・器と同じ）。"""
+    m = KOTAE_SHEET_RX.search(what or "")
+    if not m:
+        return None, "『何を』に「答えの紙 <紙>」が無い"
+    rest = KOTAE_DROP_RX.sub(" ", what[:m.start()] + " " + what[m.end():])
+    keys = list(dict.fromkeys(KOTAE_KEY_RX.findall(rest)))
+    if not keys:
+        return None, f"答えの紙 {m.group(1)} の問いの鍵（小文字の語）が書かれていない"
+    return m.group(1), keys
+
+
+def kotae_names(target, sheet, key):
+    """帳簿の行の 対象 が、その紙とその鍵を両方とも語として名指すか（純関数）。日付の紙は 11/8 と 11/08 を同じに見る。"""
+    s = re.escape(sheet)
+    if "/" in sheet:
+        mo, d = sheet.split("/")
+        s = rf"0?{int(mo)}/0?{int(d)}"
+    return bool(re.search(rf"(?<![0-9A-Za-z/]){s}(?![0-9A-Za-z/])", target)
+                and re.search(rf"(?<![A-Za-z0-9_-]){re.escape(key)}(?![A-Za-z0-9_-])", target))
+
+
+def kotae_parse(text):
+    """ledger_search の返り → (全数, [(id, 焼き先, 対象)])。形が違えば ValueError（⛔ 読めない返りを 0 件にしない）。"""
+    lines = (text or "").splitlines()
+    m = re.match(r"total_matched=(\d+) / 返した件数=(\d+)", lines[0] if lines else "")
+    if not m:
+        raise ValueError("帳簿の返りの 1 行目に total_matched= が無い")
+    rows = []
+    for line in lines[1:]:
+        if line.startswith("id="):
+            f = line.split(" | ")
+            if len(f) < 9:
+                raise ValueError(f"帳簿の行の欄が足りない（{len(f)} 欄）")
+            rows.append((f[0][3:].strip(), f[-1].strip(), " | ".join(f[6:-2])))
+    if len(rows) != int(m.group(2)):
+        raise ValueError(f"返した件数 {m.group(2)} と行の数 {len(rows)} が合わない")
+    return int(m.group(1)), rows
+
+
+def kotae_lookup(key):
+    """帳簿を鍵 1 つで引く（kiroku の ledger_search・語は OR で当たるので紙では引かない）→ (全数, 行)。届かなければ OSError。"""
+    stub = os.environ.get("KIROKU_KOTAE_STUB")
+    try:
+        if stub:
+            if stub == "fail":
+                raise RuntimeError("stub=fail")
+            text = json.load(open(stub, encoding="utf-8"))[key]
+        else:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from mcplib import MCP, unwrap
+            with MCP(timeout=60) as m:
+                r = m.send("tools/call", {"name": "kiroku__ledger_search",
+                                          "arguments": {"terms": [key], "limit": KOTAE_LIMIT}})
+                text = unwrap(r, "ledger_search")
+        return kotae_parse(text)
+    except Exception as e:                                    # noqa: BLE001 — 測れないを理由で返す
+        raise OSError(f"帳簿に届かない・返りが読めない（鍵 {key}・{str(e)[:160]}）")
+
+
 # ---------- 書式の検査（1 項目 1 関数・理由を返す・None なら合格） ----------
 def why_resume(v):
     v = one_line(v)
@@ -362,6 +441,61 @@ def cmd_check(paths):
     return rc
 
 
+def cmd_kotae(a):
+    """答え済みの手番を並べる（--apply で 手番 を空にし、next の頭に答えの id を書く・本文は不変）。測れなければ 1 字も書かずに 2。"""
+    plans, unsure, cache = [], [], {}
+    for box, sp in expand(a.paths):
+        if sp is None:
+            continue
+        text = open(sp, encoding="utf-8").read()
+        fm = parse_frontmatter(text) or {}
+        if dare_of(fm.get("手番")) != "主君" or one_line(fm.get("state")) in ("完了", "吸収済"):
+            continue
+        name = rel(sp)
+        sheet, keys = kotae_keys(teban_parts(fm.get("手番"))[1])
+        if sheet is None:
+            print(f"結べない: {name}（{keys}）")
+            continue
+        ids, left = [], []
+        for k in keys:
+            if k not in cache:
+                try:
+                    cache[k] = kotae_lookup(k)
+                except OSError as e:
+                    print(f"🚨 測れない（exit 2・1 字も書いていない）: {e}")
+                    return 2
+            total, rows = cache[k]
+            hit = [i for i, mark, tgt in rows if mark == KOTAE_MARK and kotae_names(tgt, sheet, k)]
+            if hit:
+                ids += hit
+            elif total > len(rows):
+                unsure.append(f"{name}（鍵 {k}・帳簿の返りが {len(rows)}/{total} 件で切れた）")
+            else:
+                left.append(k)
+        if left:
+            print(f"揃わない: {name}（答えの紙 {sheet}・答えが帳簿に無い鍵: {'・'.join(left)}）")
+        elif not any(u.startswith(name + "（") for u in unsure):
+            plans.append((name, sp, text, fm, sorted(set(ids), key=int)))
+    if unsure:
+        for u in unsure:
+            print(f"🚨 測れない: {u}")
+        print("🚨 確かめきれない鍵が在る（exit 2・1 字も書いていない）")
+        return 2
+    for name, sp, text, fm, ids in plans:
+        print(f"{'🧹' if a.apply else '❌'} {name}: 答え済み（答え 帳簿 {'・'.join(ids)}）")
+        if a.apply:
+            if open(sp, encoding="utf-8").read() != text:
+                print(f"⚠️ 読んだ後に変わった＝書かない: {name}")
+                continue
+            values = {key: fm.get(key, "") for key in BOX_KEYS}
+            old = one_line(fm.get("next"))
+            values["手番"] = ""
+            values["next"] = "答え 帳簿 " + "・".join(ids) + "（kiroku.py kotae が手番を空にした）" + ("／" + old if old else "")
+            values["updated"] = dt.date.today().isoformat()
+            open(sp, "w", encoding="utf-8").write(dump_frontmatter(values) + body_of(text))
+    print(f"答え済みの手番 {len(plans)} 箱" + ("（空にした）" if a.apply and plans else ""))
+    return 1 if plans and not a.apply else 0
+
 # ---------- --vocab-diff ----------
 def load_vocab(path):
     """別の kiroku.py の STATES・BOX_KEYS を実行せずに読む（ast）。"""
@@ -416,6 +550,9 @@ def main(argv=None):
         if k != "updated":
             p.add_argument(f"--{k}", dest=k, default=None)
     p.add_argument("--root", help="箱の親（既定 <棚>/08プロジェクト/）")
+    k = sub.add_parser("kotae", help="答え済みの手番を並べる／--apply で空にする")
+    k.add_argument("paths", nargs="+")
+    k.add_argument("--apply", action="store_true")
     a = ap.parse_args(argv)
     if a.check:
         return cmd_check(a.check)
@@ -423,6 +560,8 @@ def main(argv=None):
         return cmd_vocab_diff(a.vocab_diff)
     if a.cmd == "box":
         return cmd_box(a)
+    if a.cmd == "kotae":
+        return cmd_kotae(a)
     ap.print_help(); return 2
 
 

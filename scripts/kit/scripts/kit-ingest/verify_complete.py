@@ -12,12 +12,15 @@
   python3 verify_complete.py --work <一時ファイルの箱> [--manifest <manifest.tsv> ...] [--tol 2.0]
     manifest の全行について media/<source>/<id>.* を判定し、一覧と件数を出す。全部通れば exit 0、1 本でも欠ければ exit 1。
   他の道具からは good(path, size, duration, tol) を import して使う。
+  ページの行（html/<source>/<id>.html が在る行）とページの面は verify_pages.py で見る（MEDIA_EXT は動画・音声だけ）。
 
 manifest.tsv の列（タブ区切り・1 行目が見出し）:
   source  id  url  size_bytes  duration_sec  title  container  fetched_at
   size_bytes・duration_sec は取れなければ空。1 行＝ファイル 1 本（講義ではない。1 講義に動画が 2 本なら 2 行）。
 """
 import argparse, csv, glob, os, shutil, subprocess, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 MEDIA_EXT = (".mp4", ".m4a", ".mp3", ".mov", ".mkv", ".webm", ".wav", ".m4v", ".aac", ".ogg", ".flac")
 COLS = ["source", "id", "url", "size_bytes", "duration_sec", "title", "container", "fetched_at"]
@@ -104,18 +107,24 @@ def main(argv):
     mans = a.manifest or manifest_paths(a.work)
     if not mans:
         print("⛔ manifest が無い（工程 0 が先）"); return 1
+    from verify_pages import page_html, page_ok
     n = ok = 0
     bad = []
     for m in mans:
         for r in read_manifest(m):
             n += 1
+            pg = page_html(a.work, r["source"], r["id"])   # ページの行は verify_pages の ①②③（媒体の 3 段ではない）
             p = media_path(a.work, r["source"], r["id"])
-            g, why = good(p, r["size_bytes"] or None, r["duration_sec"] or None, a.tol)
+            g, why = page_ok(pg) if pg else good(p, r["size_bytes"] or None, r["duration_sec"] or None, a.tol)
             print(("OK " if g else "NG ") + f"{r['source']}/{r['id']}  {why}")
             if g:
                 ok += 1
             else:
                 bad.append(f"{r['source']}/{r['id']}: {why}")
+    from verify_pages import face_problems, page_faces
+    for face in page_faces(a.work):
+        for x in face_problems(a.work, face):
+            bad.append(f"{face}/(面) {x}")
     print(f"--- 分母 {n}・完全 {ok}・欠け {len(bad)}")
     for b in bad:
         print("  NG " + b)

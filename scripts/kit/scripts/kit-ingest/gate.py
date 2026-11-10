@@ -8,6 +8,8 @@
 数え方（何をもって在るとするか）:
   分母 N   <work>/manifest/*.tsv の行の合計（source/id が鍵）
   取得     media/<source>/<id>.* が完全性 3 段（バイト・読める・尺 ±tol）を通る
+           ページの行（html/<source>/<id>.html が在る行）は verify_pages.py の ①<body ②見える文字 200 字以上 ③題がエラーの頁でない、
+           ページの面ごとに ④CSS・画像の拡張子と中身の一致 ⑤対応表 2 本とそろう（欠けは「<面>/(面)」の行で出し、その面を解約させない）
   文字     text/<source>/<id>.txt が在り 1 バイト以上（"(音声トラックなし)" も済み）・<id>.failed が無い
   配置     placed/<source>/<id>.ok（別経路の md5 が一致した印）。--allow-dryrun のときだけ .dryrun も数え、その旨を必ず印字する
   台帳     _台帳.csv に key=<source>-<id> の行が在る
@@ -20,6 +22,7 @@ import argparse, csv, json, os, shutil, struct, sys, tempfile, wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from verify_complete import good, manifest_paths, media_path, read_manifest  # noqa: E402
+from verify_pages import face_problems, page_faces, page_html, page_ok  # noqa: E402
 
 
 def count(work, shelf, ledger, allow_dryrun, tol):
@@ -38,7 +41,8 @@ def count(work, shelf, ledger, allow_dryrun, tol):
     for r in rows:
         s, i = r["source"], r["id"]; tag = f"{s}/{i}"
         f = faces.setdefault(s, [0, 0]); f[0] += 1; hurt = False
-        ok, why = good(media_path(work, s, i), r["size_bytes"] or None, r["duration_sec"] or None, tol)
+        pg = page_html(work, s, i)
+        ok, why = page_ok(pg) if pg else good(media_path(work, s, i), r["size_bytes"] or None, r["duration_sec"] or None, tol)
         if not ok:
             lack["取得"].append(f"{tag}: {why}"); hurt = True
         t = os.path.join(work, "text", s, i)
@@ -59,11 +63,18 @@ def count(work, shelf, ledger, allow_dryrun, tol):
             lack["台帳"].append(tag); hurt = True
         if hurt:
             f[1] += 1
+    for face in page_faces(work):            # ページの面は CSS・画像・対応表までそろって初めて「取った」（門 14・15）
+        probs = face_problems(work, face)
+        for x in probs:
+            lack["取得"].append(f"{face}/(面) {x}")
+        if probs and face in faces:
+            faces[face][1] = max(faces[face][1], 1)
     return n, lack, dry, outliers, faces
 
 
 def report(n, lack, dry, outliers, faces=None):
-    print(f"分母 N={n} ｜ 取得 {n-len(lack['取得'])} ｜ 文字 {n-len(lack['文字'])} ｜ 配置 {n-len(lack['配置'])}"
+    fk = sum(1 for x in lack["取得"] if "/(面) " in x)   # 面ごとの欠け（行の数ではない）は分けて言う
+    print(f"分母 N={n} ｜ 取得 {n-len(lack['取得'])+fk}" + (f"（ほかにページの面の欠け {fk} 件）" if fk else "") + f" ｜ 文字 {n-len(lack['文字'])} ｜ 配置 {n-len(lack['配置'])}"
           + (f"（うち dry-run {dry}・本番では不可）" if dry else "") + f" ｜ 台帳 {n-len(lack['台帳'])}")
     if faces:
         print("--- 面ごと（面＝解約の単位。全数そろった面だけ、やめてよい）")
@@ -109,11 +120,28 @@ def selftest():
         open(os.path.join(shelf, "コンテクスト銀行", f"x-{i}.md"), "w", encoding="utf-8").write(
             f"---\nkey: x-{i}\nsource: x\nid: \"{i}\"\norig_title: 検体 {i}\nduration_min: 0\ndrive: 検体/x/{i}.wav\n---\n## 文字起こし\n検体の文字\n")
         open(os.path.join(shelf, "01商品資産", "検体講座", f"{i}.md"), "w", encoding="utf-8").write(f"---\nkey: x-{i}\n---\n検体の文字\n")
+    # ページの面 p（ページの行 1 本・CSS 1・画像 1・対応表 2）。媒体の 3 段ではなく verify_pages の ①〜⑤ で数える
+    from verify_pages import GOOD_BODY, PNG, ERROR_PAGE
+    for d in ("html/p", "css/p", "media/p-img", "text/p", "placed/p"):
+        os.makedirs(os.path.join(work, d))
+    with open(os.path.join(work, "manifest", "p.tsv"), "w", encoding="utf-8") as f:
+        f.write("source\tid\turl\tsize_bytes\tduration_sec\ttitle\tcontainer\tfetched_at\n")
+        f.write("p\tq1\thttp://example.invalid/q1\t\t\t検体の頁\tページ\t2000-01-01\n")
+    open(os.path.join(work, "html", "p", "q1.html"), "w", encoding="utf-8").write(
+        f"<!DOCTYPE html><html><head><title>検体の頁</title></head><body>{GOOD_BODY}</body></html>")
+    open(os.path.join(work, "css", "p", "main.css"), "w").write("body{margin:0}\n")
+    open(os.path.join(work, "media", "p-img", "hero.png"), "wb").write(PNG)
+    open(os.path.join(work, "html", "p", "_css-map.tsv"), "w").write("url\tfile\nhttp://example.invalid/main.css\tmain.css\n")
+    open(os.path.join(work, "html", "p", "_img-map.tsv"), "w").write("page\turl\tfile\nq1\thttp://example.invalid/hero.png\thero.png\n")
+    open(os.path.join(work, "text", "p", "q1.txt"), "w").write("検体の頁の文字\n")
+    open(os.path.join(work, "placed", "p", "q1.ok"), "w").write("md5\n")
+    open(os.path.join(shelf, "コンテクスト銀行", "p-q1.md"), "w", encoding="utf-8").write(
+        "---\nkey: p-q1\nsource: p\nid: \"q1\"\norig_title: 検体の頁\n---\n## 本文\n検体の頁の文字\n")
     import subprocess
     ledger = os.path.join(shelf, "コンテクスト銀行", "_台帳.csv")
     subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_ledger.py"), "--shelf", shelf],
                    check=True, capture_output=True)
-    print("== 正の対照（2 本そろっている）")
+    print("== 正の対照（媒体 2 本とページ 1 本がそろっている）")
     if report(*count(work, shelf, ledger, False, 2.0)) != 0:
         print("🚨 selftest: 正しい検体で門が落ちた（門が壊れている）"); shutil.rmtree(t); return 1
     import shutil as _sh
@@ -121,7 +149,10 @@ def selftest():
     checks = [("文字", lambda: os.remove(os.path.join(work, "text", "x", "-b2.txt"))),
               ("配置", lambda: os.remove(os.path.join(work, "placed", "x", "a1.ok"))),
               ("取得", lambda: open(os.path.join(work, "media", "x", "a1.wav"), "wb").write(b"RIFF")),
-              ("台帳", lambda: open(ledger, "w").write("key,source,id\n"))]
+              ("台帳", lambda: open(ledger, "w").write("key,source,id\n")),
+              ("取得（ページ: <body が無い）", lambda: open(os.path.join(work, "html", "p", "q1.html"), "w").write(
+                  "<!DOCTYPE html><html><head><title>検体の頁</title></head></html>")),
+              ("取得（ページの面: エラーの頁を CSS の名前で置く）", lambda: open(os.path.join(work, "css", "p", "main.css"), "w").write(ERROR_PAGE))]
     for name, hurt in checks:
         # 毎回そろった状態へ戻してから 1 列だけ欠く（欠けの累積で落ちたのを「その列の門」と誤認しない）
         _sh.rmtree(work); _sh.rmtree(shelf)
@@ -131,7 +162,7 @@ def selftest():
         if report(*count(work, shelf, ledger, False, 2.0)) == 0:
             print(f"🚨 selftest: {name} を欠いたのに門が通った（門が死んでいる）"); _sh.rmtree(t); return 3
     shutil.rmtree(t)
-    print("✅ selftest: 正の対照が通り、4 列それぞれの負制御が落ちた")
+    print("✅ selftest: 正の対照が通り、4 列それぞれの負制御とページの負制御 2 本が落ちた")
     return 0
 
 

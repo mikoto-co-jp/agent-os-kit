@@ -18,6 +18,8 @@ usage:
                                                      `<中の OS>/` で始まる道は中の OS の作業木で、それ以外は本陣の作業木で commit する
   python3 honjin_wt.py close                         自席の作業木 2 本を畳む。未 commit か未 push が在れば何も消さず rc=1
 
+前提:   git 2.40 以上（git merge-tree --merge-base を使う）。足りなければ撃つ前に「git 2.40 以上が要る」と言って止まる（need_git）。
+
 置き場: 既定は `<本陣>/<中の OS>/11一時ファイル/作業場/`（両方の保管場所で git の外＝**規則を 1 行も足さずに置ける**）。
         `HONJIN_WT_DIR` で替えられる。対象の本陣は `HONJIN_ROOT`（既定はこの道具の置き場から引く）。
         ⛔ 作業場が git の外でなければ切らない（check-ignore で確かめる）。
@@ -32,6 +34,9 @@ BRANCH = "main"
 INNER = None   # 中の OS の名前。本陣の scripts の別名の先から読む（_inner）
 ARCHIVED_BOXES = "09アーカイブ/案件"
 PUSH_TRIES = 5
+GIT_MIN = (2, 40)   # replay が `git merge-tree --write-tree --merge-base=` を使う（2.40 から）。macOS に元から在る git は 2.39 台
+
+
 
 
 class Stop(Exception):
@@ -347,9 +352,23 @@ def cmd_close(cwd):
     return 0
 
 
+def need_git():
+    """git の版を測り、GIT_MIN に足りなければ止まる（足りないまま撃つと sync・push の途中で merge-tree が意味の分からない言い方で落ちる）。
+    ⚠️ 測るのはこの道具が呼ぶ git（PATH の先頭）。新しい git を入れても、素の窓（何も足さない shell）で古い git が先に見えることがある。"""
+    p = subprocess.run(["git", "--version"], capture_output=True, text=True)
+    m = re.search(r"(\d+)\.(\d+)(?:\.\d+)?", p.stdout or "")
+    if p.returncode != 0 or not m:
+        raise Stop(2, f"⛔ git の版が測れない（git --version: {(p.stdout or p.stderr).strip() or '出力なし'}）。git 2.40 以上が要る")
+    have = (int(m.group(1)), int(m.group(2)))
+    if have < GIT_MIN:
+        raise Stop(2, f"⛔ git 2.40 以上が要る（いま呼ばれる git は {m.group(0)}・{p.stdout.strip()}）。"
+                      f"この道具は git merge-tree --merge-base を使う。新しい git を入れたら、素の窓（env -i HOME=$HOME zsh -lc 'git --version'）でも新しい版が見えるか確かめてから撃ち直す")
+
+
 def main(argv, cwd=None):
     cwd = cwd or os.getcwd()
     try:
+        need_git()
         if len(argv) == 2 and argv[0] == "open":
             return cmd_open(argv[1])
         if argv == ["sync"]:

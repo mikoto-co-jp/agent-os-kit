@@ -16,8 +16,9 @@
 #   bash scripts/make-kit.sh <出力先>                       出力先は空か存在しない dir。門（固有値 0 件）を通れば exit 0
 #   bash scripts/make-kit.sh --fill <棚> 名前=… 呼ばれ方=… 事業名=… 棚の名前=… 棚の置き場=… "git remote=…"
 #                                                          雛形の {名前} を埋める（冪等。無い穴は何もしない。埋めない穴は残る）
-#                                                          ⛔ 埋めるのは「その人の棚の紙」だけ。scripts/ 配下（道具自身と scripts/kit/ の雛形の写し）には触れない
+#                                                          ⛔ 埋めるのは「その人の棚の紙」だけ。**どの深さの** scripts/・.git/ にも触れない（道具自身と scripts/kit/ の雛形の写し）
 #                                                             （触れると次の切り出しと --selftest の門が固有値で落ちる＝2026-09-20 通しテスト §2-6）
+#                                                          🔑 撃つ所は一番上（本陣の形なら本陣・上げる前なら棚）。本陣で撃つと中の OS の紙まで埋まり、中の OS の scripts/ は残る
 #   bash scripts/make-kit.sh --drift                        退役（配る版は棚から切り離した。撃っても照合せず exit 0）
 #   bash scripts/make-kit.sh --numbers <道…>                 配る物が指す X-n・H-n・§n が雛形の規矩に実在するか（exit 0/1）
 #   bash scripts/make-kit.sh --selftest                     空の一時 git リポに切り出して門を全部撃つ。exit 0＝合格／1＝壊れている／3＝負制御が落ちなかった
@@ -33,8 +34,8 @@ GATE="$ROOT/scripts/check-distributable.sh"
 # 当社固有の生成器（course/・register/・経理/・mirror_*.py・build_distribution_ledgers.py ほか）は入れない。足すならここに 1 行
 KIT_TOOLS="kiroku.py build_scope_progress.py build_agent_aliases.py check-distributable.sh make-kit.sh honjin.py"
 KIT_HOOKS="pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-commit-box.sh"
-# 資産の引き上げ席が呼ぶ道具（下の 2 行で合わせて 10 本＝kit-ingest 9 ＋ sms 1。無いとその席は配っても最初の門で止まる）
-KIT_INGEST="verify_complete.py fetch_one.py transcribe_loop.py drive_put.py build_ledger.py manifest_add.py inventory_youtube.py verify_cards.py gate.py"
+# 資産の引き上げ席が呼ぶ道具（下の 2 行で合わせて 11 本＝kit-ingest 10 ＋ sms 1。無いとその席は配っても最初の門で止まる）
+KIT_INGEST="verify_complete.py verify_pages.py fetch_one.py transcribe_loop.py drive_put.py build_ledger.py manifest_add.py inventory_youtube.py verify_cards.py gate.py"
 KIT_SMS="read_code.sh"
 KIT_BOXES="00朝廷 01商品資産 02マーケティング資産 03セールス資産 04オペレーション資産 05バックオフィス資産 06エージェント資産 06エージェント資産/_便 06エージェント資産/_孔明起動 07学習資産 08プロジェクト
 09アーカイブ/案件 09アーカイブ/裁定 コンテクスト銀行 10私用 11一時ファイル"
@@ -67,6 +68,8 @@ drift() {
 # ---------- --fill: {名前} を埋める（冪等） ----------
 # ⛔ scripts/ 配下は埋めない: 道具のコメントに書かれた {名前} と scripts/kit/ の雛形の写しは「穴のまま」が正しい
 #   （埋めると check-distributable が固有値と数え、建てた棚の --selftest と次の切り出しが落ちる）。飛ばした事実は 1 行出す
+# 🔑 飛ばすのは**どの深さの** scripts/・.git/ も（2026-11-10 会員の報告）。一番上だけを飛ばすと、本陣の形（規則の紙が一番上・
+#   道具と雛形の写しが一段下の中の OS）で一番上から撃ったとき、中の OS の scripts/kit/ の雛形まで埋まった
 fill() {
   local out="$1"; shift
   [ -d "$out" ] || die "棚が無い: $out" 2
@@ -81,9 +84,8 @@ for p in pairs:
 n = 0
 SKIP_DIRS = (".git", "scripts")
 for d, ds, fs in os.walk(out):
-    if d == out:
-        for sd in SKIP_DIRS:
-            if sd in ds: ds.remove(sd); print(f"  \u23ed {sd}/ は埋めない（{'道具と雛形の写し' if sd == 'scripts' else 'git の中身'}）")
+    for sd in SKIP_DIRS:   # どの深さでも飛ばす（一番上だけではない）
+        if sd in ds: ds.remove(sd); print(f"  \u23ed {os.path.relpath(os.path.join(d, sd), out)}/ は埋めない（{'道具と雛形の写し' if sd == 'scripts' else 'git の中身'}）")
     for f in fs:
         p = os.path.join(d, f)
         if not f.endswith((".md", ".sh", ".py", ".gitignore")) and f != ".gitignore": continue
@@ -300,6 +302,8 @@ selftest() {
   for b in $KIT_INGEST; do
     [ -f "$kit/scripts/kit-ingest/$b" ] || die "selftest: 器に scripts/kit-ingest/${b} が入っていない"
   done
+  # ページの面の門は ffprobe が要らない＝毎回撃つ（<body・見える文字・題・拡張子と中身・対応表 の負制御 8 本）
+  ( cd "$kit" && python3 scripts/kit-ingest/verify_pages.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/verify_pages.py --selftest が exit 0 にならない" 3
   # カードの検品は ffprobe が要らない＝毎回撃つ（_ で始まる紙を数えない・壊れたカードは落ちる の両方）
   ( cd "$kit" && python3 scripts/kit-ingest/verify_cards.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/verify_cards.py --selftest が exit 0 にならない" 3
   for b in $KIT_SMS; do
@@ -351,6 +355,14 @@ selftest() {
   python3 "$os1/scripts/honjin.py" lift "$os1" > /dev/null || die "selftest: lift が落ちた"
   ( cd "$os1" && git init -q && git config core.hooksPath scripts/git-hooks ) || die "selftest: 中の OS の git init"
   for x in CLAUDE.md .claude/rules/規矩.md 00朝廷 08プロジェクト 09アーカイブ/案件 docs/SCOPE_PROGRESS.md scripts/kiroku.py; do [ -e "$hj/$x" ] || die "selftest: 本陣に ${x} が無い"; done
+  step "9-2 本陣の形で一番上から fill（本陣の紙は埋まり・入れ子の道具と雛形の写しと .git は 1 バイトも変わらない）"
+  grep -q '{実体の置き場}' "$hj/.claude/rules/メモリシステム.md" || die "selftest: 本陣の紙に検体の穴 {実体の置き場} が無い（9-2 の陽性対照が組めない）"
+  grep -q '{実体の置き場}' "$os1/scripts/kit/.claude/rules/メモリシステム.md" || die "selftest: 中の OS の雛形の写しに検体の穴 {実体の置き場} が無い（9-2 の負制御が組めない）"
+  ( cd "$os1" && find scripts .git -type f -exec shasum {} + | sort ) > "$t/nest.before"
+  bash "$0" --fill "$hj" 実体の置き場=検体の置き場 > "$t/fill-hj.log" 2>&1 || { cat "$t/fill-hj.log"; die "selftest: 本陣で fill が落ちた"; }
+  grep -q '{実体の置き場}' "$hj/.claude/rules/メモリシステム.md" && die "selftest: 本陣で fill を撃っても本陣の紙が埋まらない"
+  ( cd "$os1" && find scripts .git -type f -exec shasum {} + | sort ) > "$t/nest.after"
+  cmp -s "$t/nest.before" "$t/nest.after" || { diff "$t/nest.before" "$t/nest.after" | head; echo "🚨 selftest: 本陣で fill を撃つと中の OS の scripts/（道具と雛形の写し）か .git が書き換わった"; rm -rf "$t"; exit 3; }
   for x in 01商品資産 06エージェント資産/README.md コンテクスト銀行 10私用 11一時ファイル scripts/make-kit.sh; do [ -e "$os1/$x" ] || die "selftest: 中の OS に ${x} が無い"; done
   [ -e "$os1/00朝廷" ] || [ -e "$os1/08プロジェクト" ] || [ -e "$os1/.claude/rules" ] && die "selftest: 中の OS に本陣の物が残った"
   ( cd "$hj" && python3 scripts/kiroku.py box --slug 2000-01-01-本陣の検体 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: 本陣で kiroku.py box が落ちた"
@@ -389,11 +401,23 @@ selftest() {
     echo "🚨 selftest: 衝突の印が残るのに apply-rules が当てた（門が死んでいる）"; rm -rf "$t"; exit 3
   fi
   grep -q '会員が直した見出し' "$hj/.claude/rules/規矩.md" || die "selftest: 衝突で止まったはずなのに会員の紙が書き換わった"
-  step "11 皆伝の道具（席ごとの作業場所: kaiden でだけ置く・外への写しが無いと撃たない・open → push → close）"
+  step "11 皆伝の道具（席ごとの作業場所: kaiden でだけ置く・外への写しが無いと撃たない・git の版の下限・open → push → close）"
+  # 🔑 皆伝の道具は git merge-tree --merge-base（git 2.40 以上）を使う。macOS に元から在る git は 2.39 台＝先に測って言って止まる
+  local gv; gv=$(git --version 2>/dev/null | sed -n 's/^git version \([0-9]*\)\.\([0-9]*\).*/\1 \2/p')
+  set -- $gv
+  { [ -n "${1:-}" ] && { [ "$1" -gt 2 ] || { [ "$1" -eq 2 ] && [ "${2:-0}" -ge 40 ]; }; }; } \
+    || die "selftest: git 2.40 以上が要る（いま呼ばれる git: $(git --version 2>&1)）。新しい git を入れたら、素の窓（env -i HOME=\$HOME zsh -lc 'git --version'）でも新しい版が見えるか確かめてから撃ち直す"
+  set --
   [ -e "$os1/scripts/honjin_wt.py" ] && die "selftest: 皆伝の道具が初めから置かれている（皆伝の機体にだけ置く）"
   python3 "$os1/scripts/honjin.py" kaiden "$hj" > /dev/null || die "selftest: kaiden が落ちた"
   if ( cd "$hj" && python3 scripts/honjin_wt.py open 0123abcd > /dev/null 2>&1 ); then
     echo "🚨 selftest: 外への写しが無いのに honjin_wt.py open が通った"; rm -rf "$t"; exit 3
+  fi
+  # 負制御: git の版を低く見せると「git 2.40 以上が要る」で止まる（途中の merge-tree で分からない落ち方をしない）
+  mkdir -p "$t/oldgit" && printf '#!/bin/sh\necho "git version 2.39.5"\n' > "$t/oldgit/git" && chmod +x "$t/oldgit/git"
+  ( cd "$hj" && PATH="$t/oldgit:$PATH" python3 scripts/honjin_wt.py open 0123abcd > "$t/oldgit.log" 2>&1 )
+  if [ $? -eq 0 ] || ! grep -q 'git 2.40 以上が要る' "$t/oldgit.log"; then
+    cat "$t/oldgit.log"; echo "🚨 selftest: git の版を 2.39 に見せても honjin_wt.py が「git 2.40 以上が要る」で止まらない"; rm -rf "$t"; exit 3
   fi
   (
     export GIT_AUTHOR_NAME=検体 GIT_AUTHOR_EMAIL=k@example.invalid GIT_COMMITTER_NAME=検体 GIT_COMMITTER_EMAIL=k@example.invalid
@@ -411,7 +435,7 @@ selftest() {
     [ ! -e "$w" ] || exit 1
   ) > "$t/wt.log" 2>&1 || { cat "$t/wt.log"; die "selftest: 席ごとの作業場所（open → push → close）が通らない"; }
   rm -rf "$t"
-  echo "✅ selftest: 切り出し・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）・本陣の形（lift・2 か所の門・負制御）・器の更新（3 方向・衝突の負制御）・皆伝の道具（置き方・外への写しの負制御・open/push/close）が全部通った"
+  echo "✅ selftest: 切り出し・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）・本陣の形（lift・一番上からの fill で入れ子が変わらない・2 か所の門・負制御）・器の更新（3 方向・衝突の負制御）・皆伝の道具（置き方・外への写しと git の版の負制御・open/push/close）・ページの面の門が全部通った"
   exit 0
 }
 
