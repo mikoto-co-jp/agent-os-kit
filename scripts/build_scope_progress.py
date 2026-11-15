@@ -6,7 +6,7 @@
   （2026-10-02 主君裁定・帳簿 id=3117: 箱の書き方を開発の箱と同じ 4 語の state と `手番: 誰が｜何を｜🔬実測` の 1 欄に揃えた。
    ask／lever／until は退役。§2〜§4 はどれも 手番 の『誰が』1 本から仕分ける＝誰のボールかを 2 か所で持たない）
   1. プロジェクト     08プロジェクト/*/status.md を state 別（起案／実行中／完了）の表＝箱｜owner｜手番（誰が）｜next｜updated。
-                      status.md の無い箱・語彙外の state は赤。09アーカイブ/案件/ の凍結箱は末尾に一覧
+                      status.md の無い箱・語彙外の state は赤。09アーカイブ/案件/ のフォルダは state で 閉じた箱（数）／凍結（末尾に一覧）／墓標が読めない（赤）に分ける
   2. 裁定表           00朝廷/*.md の全数（手番 の『誰が』＝主君 の紙。孔明 の紙は「孔明が裁く（うけつけ）」に別に出す・手番なしは差し戻し）
                       ＋ 手番 の『誰が』＝主君 の箱のうち、本文 `## 決裁待ちの材料` に 選択肢 が在る物（問い｜選択肢｜推奨｜決めないと）。
                       束ねない。推奨なしは差し戻し
@@ -25,7 +25,7 @@
                       ⇒ 便が run_end と同時に置く 11一時ファイル/便の実行-YYYY-MM.tsv を読む（--runs で差し替え可）。
                       正本は帳簿・この tsv は 7 日で消える窓。tsv が無ければ全便「取得不能（tsv なし）」と出す（0 件とは書かない）
   6. エージェント（席） 06エージェント資産/_索引-写し.md の箱ごとの体数 ＋ --monsters <json>（list_monsters の結果）
-  7. 完了（30 日）    09アーカイブ/案件/*.md の墓標
+  7. 完了（30 日）    09アーカイブ/案件/*.md の墓標 ＋ フォルダのまま閉じた箱（status.md の state が 完了・吸収済・閉じた日は updated）
   8. 棚の差分         数だけ（08プロジェクト・00朝廷・一段目のみ。深い走査はしない）
 
 --check: 自己一致。①生成器の語彙が kiroku.STATES と同じ ②08プロジェクト/ の全箱が kiroku --check を通る
@@ -84,6 +84,11 @@ STATES = kiroku.STATES
 STATE_SECTIONS = ("起案", "実行中", "完了")   # §1 に必ず出す 3 つ（吸収済 は在るときだけ）
 STATE_ORDER = {s: i for i, s in enumerate(STATES)}
 STATE_ORDER.update({"語彙外": 90, "状態なし": 91, "凍結": 92})
+# 09アーカイブ/案件/ の下のフォルダの箱を status.md の state で分ける（箱 n=4971・2026-11-15 会員の報告）。
+#   完了・吸収済＝閉じた箱（数だけ §1・30 日以内は §7）／起案・実行中・旧語（kiroku.STATE_LEGACY）・frontmatter の無い
+#   旧書式の status.md・status.md の無い資料だけのフォルダ＝凍結（再点火は主君）／frontmatter は在るが state が空・語彙外＝赤「墓標が読めない」
+CLOSED_STATES = ("完了", "吸収済")
+FROZEN_STATES = tuple(s for s in STATES if s not in CLOSED_STATES) + tuple(kiroku.STATE_LEGACY)
 
 
 # ---------- 読む道具 ----------
@@ -166,12 +171,47 @@ def read_projects():
                      "due": fm.get("due", ""), "updated": fm.get("updated", ""),
                      "手番": fm.get("手番", ""), "material": read_material(kiroku.body_of(text)),
                      "path": sp, "bad": bad})
-    frozen = []
-    for d in sorted(glob.glob(os.path.join(GRAVES, "*"))):
-        if os.path.isdir(d):
-            frozen.append(os.path.basename(d))
     rows.sort(key=lambda r: (STATE_ORDER.get(r["state"], 89), r["due"] or "9999", r["name"]))
-    return rows, no_status, frozen
+    return rows, no_status
+
+
+def name_date(name):
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", name)
+    return m.group(1) if m else ""
+
+
+def grave_box(d):
+    """09アーカイブ/案件/<フォルダ>/ を 1 つ読む → (kind, row)。kind は 閉じた／凍結／読めない。
+    閉じた日は status.md の updated（無ければフォルダ名の日付）"""
+    name = os.path.basename(d)
+    sp = os.path.join(d, "status.md")
+    if not os.path.exists(sp):
+        return "凍結", {"name": name}                       # 資料だけのフォルダ
+    text = open(sp, encoding="utf-8").read()
+    fm = kiroku.parse_frontmatter(text)
+    if fm is None:
+        return "凍結", {"name": name}                       # frontmatter の無い旧書式（語彙より前の箱）
+    st = (fm.get("state") or "").strip()
+    if st in CLOSED_STATES:
+        upd = (fm.get("updated") or "").strip()
+        closed = upd if re.match(r"^\d{4}-\d{2}-\d{2}$", upd) else name_date(name)
+        return "閉じた", {"name": name, "state": st, "closed": closed,
+                          "title": fm.get("title") or name, "absorb": fm.get("absorb") or "—",
+                          "grave": os.path.relpath(sp, HONJIN)}
+    if st in FROZEN_STATES:
+        return "凍結", {"name": name}
+    return "読めない", {"name": name, "raw_state": st}
+
+
+def read_graves():
+    """→ closed（行）, frozen（名前）, unreadable（行）。1 枚の墓標（*.md）はここで数えない（§7 の read_done が読む）"""
+    closed, frozen, unreadable = [], [], []
+    for d in sorted(glob.glob(os.path.join(GRAVES, "*"))):
+        if not os.path.isdir(d):
+            continue
+        kind, row = grave_box(d)
+        {"閉じた": closed, "凍結": frozen, "読めない": unreadable}[kind].append(row if kind != "凍結" else row["name"])
+    return closed, frozen, unreadable
 
 
 def read_material(body):
@@ -619,19 +659,34 @@ def read_seats(schedules, monsters_path):
 
 # ---------- 7. 完了（30 日） ----------
 
-def read_done():
+def read_done(closed_boxes=()):
+    """1 枚の墓標（09アーカイブ/案件/*.md）＋フォルダのまま閉じた箱（read_graves の closed）の 30 日。
+    1 枚の墓標の閉じた日: 見出しの（開始 → 終了）→ frontmatter の updated → 本文の「主君裁定 YYYY-MM-DD」→ 名前の日付（印を付ける）"""
     out = []
+    for r in closed_boxes:
+        age = days_since(r["closed"])
+        if age is not None and age <= DONE_DAYS:
+            out.append({"closed": r["closed"], "title": r["title"], "absorb": r["absorb"], "grave": r["grave"]})
     for p in sorted(glob.glob(os.path.join(GRAVES, "*.md"))):
         with open(p, encoding="utf-8") as f:
             text = f.read()
+        fm = kiroku.parse_frontmatter(text) or {}
         m = re.search(r"^#\s*(.+?)（(\d{4}-\d{2}-\d{2})\s*→\s*(\d{4}-\d{2}-\d{2})）", text, re.M)
+        upd = (fm.get("updated") or "").strip()
         if m:
             title, closed = m.group(1), m.group(3)
         else:
             m2 = re.search(r"^#\s*(.+)$", text, re.M)
-            title = m2.group(1) if m2 else os.path.basename(p)
+            title = fm.get("title") or (m2.group(1) if m2 else os.path.basename(p))
             m3 = re.search(r"主君裁定\s*(\d{4}-\d{2}-\d{2})", text)
-            closed = m3.group(1) if m3 else ""
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", upd):
+                closed = upd
+            elif m3:
+                closed = m3.group(1)
+            else:
+                closed = name_date(os.path.basename(p))
+                if closed:
+                    title += "（閉じた日が読めない・名前の日付）"
         age = days_since(closed)
         if age is None or age > DONE_DAYS:
             continue
@@ -645,6 +700,8 @@ def read_done():
                 if len(c) >= 2 and c[0] not in ("物", "") and not set(c[0]) <= {"-"}:
                     absorb = c[1]
                     break
+        if absorb == "—" and fm.get("absorb"):
+            absorb = fm["absorb"]
         out.append({"closed": closed, "title": title, "absorb": absorb,
                     "grave": os.path.relpath(p, HONJIN)})
     out.sort(key=lambda r: r["closed"], reverse=True)
@@ -716,7 +773,8 @@ def table(header, rows):
 
 def build(args):
     """→ (lines, stderr 用の数字)"""
-    projects, no_status, frozen = read_projects()
+    projects, no_status = read_projects()
+    closed_boxes, frozen, unreadable = read_graves()
     items, koumei, sent_back = read_council(projects)
     levers = read_levers(projects)
     untils = read_untils(projects)
@@ -724,7 +782,7 @@ def build(args):
     routine, sched_src, runs_found = read_routine(args.schedules, getattr(args, "runs", None))
     scheds, _ = load_schedules(args.schedules)
     seats, skills, seats_foot = read_seats(scheds, args.monsters)
-    done = read_done()
+    done = read_done(closed_boxes)
     shelf = read_shelf(no_status)
 
     n = {s: sum(1 for r in projects if r["state"] == s) for s in list(STATES) + ["語彙外", "状態なし"]}
@@ -743,6 +801,8 @@ def build(args):
          "",
          f"数字: 箱 {len(projects)}（" + "・".join(f"{s} {n[s]}" for s in STATES if n[s]) 
          + f"・語彙外 {n['語彙外']}・状態なし {n['状態なし']}）／凍結 {len(frozen)}"
+         f"／閉じた箱 {len(closed_boxes)}（" + "・".join(f"{s} {sum(1 for r in closed_boxes if r['state'] == s)}" for s in CLOSED_STATES)
+         + f"）／墓標が読めない {len(unreadable)}"
          f"／裁定待ち {len(items)} 件（最長 {longest} 日・差し戻し {len(sent_back)}）"
          f"／主君の手 {len(levers)}／待ち受け {len(untils)}（🔴 {late}）／再開の合図 {len(resumes)}"
          f"／便 {len(routine)} 本（fail {fail}・実行未記録 {norun}）"
@@ -764,12 +824,17 @@ def build(args):
         if rs:
             L += [f"### {st}（{len(rs)}）", ""] + table("| 箱 | owner | 手番 | next | updated |", box_rows(rs)) + [""]
     bad = [r for r in projects if r["state"] in ("語彙外", "状態なし")]
-    L += [f"### 赤（{len(bad)}・直すのは owner）", ""]
+    L += [f"### 赤（{len(bad) + len(unreadable)}・直すのは owner）", ""]
     L += table("| 何 | 箱 | 直し方 |",
                [f"| **{'状態なし' if r['state'] == '状態なし' else '語彙外: ' + cell(r.get('raw_state'))}** | "
                 f"{cell(r['name'])} | "
                 f"{'status.md を kiroku.py box で作る' if r['state'] == '状態なし' else 'state を語彙（' + '｜'.join(STATES) + '）に直す'} |"
-                for r in bad])
+                for r in bad]
+               + [f"| **墓標が読めない: {cell(r['raw_state']) or '（state が空）'}** | 09アーカイブ/案件/{cell(r['name'])} | "
+                  f"status.md の state を {'｜'.join(CLOSED_STATES)}（閉じた）か {'｜'.join(FROZEN_STATES[:2])}（凍結）に直す |"
+                  for r in unreadable])
+    L += ["", f"閉じた箱（09アーカイブ/案件/ のフォルダ・state {'｜'.join(CLOSED_STATES)}）: {len(closed_boxes)}"
+              "（30 日以内は §7）"]
     L += ["", f"凍結（09アーカイブ/案件/ の箱・再点火は主君）: " + ("・".join(frozen) if frozen else "（なし）")]
 
     L += ["", "## 2. 裁定表（00朝廷/ と箱の 手番＝主君・番号で返す）", ""]
@@ -832,7 +897,8 @@ def build(args):
     if shelf["big_list"]:
         L += ["", "- 実体: " + " / ".join(shelf["big_list"])]
     L.append("")
-    summary = (f"箱 {len(projects)}（状態なし {n['状態なし']}・語彙外 {n['語彙外']}・凍結 {len(frozen)}）"
+    summary = (f"箱 {len(projects)}（状態なし {n['状態なし']}・語彙外 {n['語彙外']}・凍結 {len(frozen)}"
+               f"・閉じた箱 {len(closed_boxes)}・墓標が読めない {len(unreadable)}）"
                f" / 裁定 {len(items)} / 差し戻し {len(sent_back)} / 主君の手 {len(levers)} / 待ち受け {len(untils)}（🔴 {late}）"
                f" / 便 {len(routine)}（fail {fail}・実行未記録 {norun}・src {sched_src}）"
                f" / 席 {seat_total}（稼働 {seat_run}・スキル {skills}）"
