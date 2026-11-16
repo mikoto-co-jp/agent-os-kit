@@ -402,22 +402,22 @@ selftest() {
   fi
   grep -q '会員が直した見出し' "$hj/.claude/rules/規矩.md" || die "selftest: 衝突で止まったはずなのに会員の紙が書き換わった"
   step "11 皆伝の道具（席ごとの作業場所: kaiden でだけ置く・外への写しが無いと撃たない・git の版の下限・open → push → close）"
-  # 🔑 皆伝の道具は git merge-tree --merge-base（git 2.40 以上）を使う。macOS に元から在る git は 2.39 台＝先に測って言って止まる
+  # 🔑 皆伝の道具は git merge-tree --write-tree（git 2.38 以上）を使う。macOS に元から在る Apple git 2.39 で足りる。それより古ければ先に測って言って止まる
   local gv; gv=$(git --version 2>/dev/null | sed -n 's/^git version \([0-9]*\)\.\([0-9]*\).*/\1 \2/p')
   set -- $gv
-  { [ -n "${1:-}" ] && { [ "$1" -gt 2 ] || { [ "$1" -eq 2 ] && [ "${2:-0}" -ge 40 ]; }; }; } \
-    || die "selftest: git 2.40 以上が要る（いま呼ばれる git: $(git --version 2>&1)）。新しい git を入れたら、素の窓（env -i HOME=\$HOME zsh -lc 'git --version'）でも新しい版が見えるか確かめてから撃ち直す"
+  { [ -n "${1:-}" ] && { [ "$1" -gt 2 ] || { [ "$1" -eq 2 ] && [ "${2:-0}" -ge 38 ]; }; }; } \
+    || die "selftest: git 2.38 以上が要る（いま呼ばれる git: $(git --version 2>&1)）。新しい git を入れたら、素の窓（env -i HOME=\$HOME zsh -lc 'git --version'）でも新しい版が見えるか確かめてから撃ち直す"
   set --
   [ -e "$os1/scripts/honjin_wt.py" ] && die "selftest: 皆伝の道具が初めから置かれている（皆伝の機体にだけ置く）"
   python3 "$os1/scripts/honjin.py" kaiden "$hj" > /dev/null || die "selftest: kaiden が落ちた"
   if ( cd "$hj" && python3 scripts/honjin_wt.py open 0123abcd > /dev/null 2>&1 ); then
     echo "🚨 selftest: 外への写しが無いのに honjin_wt.py open が通った"; rm -rf "$t"; exit 3
   fi
-  # 負制御: git の版を低く見せると「git 2.40 以上が要る」で止まる（途中の merge-tree で分からない落ち方をしない）
-  mkdir -p "$t/oldgit" && printf '#!/bin/sh\necho "git version 2.39.5"\n' > "$t/oldgit/git" && chmod +x "$t/oldgit/git"
+  # 負制御: git の版を低く見せると「git 2.38 以上が要る」で止まる（途中の merge-tree で分からない落ち方をしない）
+  mkdir -p "$t/oldgit" && printf '#!/bin/sh\necho "git version 2.37.1"\n' > "$t/oldgit/git" && chmod +x "$t/oldgit/git"
   ( cd "$hj" && PATH="$t/oldgit:$PATH" python3 scripts/honjin_wt.py open 0123abcd > "$t/oldgit.log" 2>&1 )
-  if [ $? -eq 0 ] || ! grep -q 'git 2.40 以上が要る' "$t/oldgit.log"; then
-    cat "$t/oldgit.log"; echo "🚨 selftest: git の版を 2.39 に見せても honjin_wt.py が「git 2.40 以上が要る」で止まらない"; rm -rf "$t"; exit 3
+  if [ $? -eq 0 ] || ! grep -q 'git 2.38 以上が要る' "$t/oldgit.log"; then
+    cat "$t/oldgit.log"; echo "🚨 selftest: git の版を 2.37 に見せても honjin_wt.py が「git 2.38 以上が要る」で止まらない"; rm -rf "$t"; exit 3
   fi
   (
     export GIT_AUTHOR_NAME=検体 GIT_AUTHOR_EMAIL=k@example.invalid GIT_COMMITTER_NAME=検体 GIT_COMMITTER_EMAIL=k@example.invalid

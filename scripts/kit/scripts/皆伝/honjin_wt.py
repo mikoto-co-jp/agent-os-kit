@@ -18,7 +18,7 @@ usage:
                                                      `<中の OS>/` で始まる道は中の OS の作業木で、それ以外は本陣の作業木で commit する
   python3 honjin_wt.py close                         自席の作業木 2 本を畳む。未 commit か未 push が在れば何も消さず rc=1
 
-前提:   git 2.40 以上（git merge-tree --merge-base を使う）。足りなければ撃つ前に「git 2.40 以上が要る」と言って止まる（need_git）。
+前提:   git 2.38 以上（git merge-tree --write-tree を使う・macOS に元から在る Apple git 2.39 で足りる）。足りなければ撃つ前に「git 2.38 以上が要る」と言って止まる（need_git）。
 
 置き場: 既定は `<本陣>/<中の OS>/11一時ファイル/作業場/`（両方の保管場所で git の外＝**規則を 1 行も足さずに置ける**）。
         `HONJIN_WT_DIR` で替えられる。対象の本陣は `HONJIN_ROOT`（既定はこの道具の置き場から引く）。
@@ -34,7 +34,7 @@ BRANCH = "main"
 INNER = None   # 中の OS の名前。本陣の scripts の別名の先から読む（_inner）
 ARCHIVED_BOXES = "09アーカイブ/案件"
 PUSH_TRIES = 5
-GIT_MIN = (2, 40)   # replay が `git merge-tree --write-tree --merge-base=` を使う（2.40 から）。macOS に元から在る git は 2.39 台
+GIT_MIN = (2, 38)   # replay が `git merge-tree --write-tree` を使う（2.38 から）。`--merge-base=`（2.40 から）は使わない＝macOS に元から在る Apple git 2.39 で動く
 
 
 
@@ -185,7 +185,17 @@ def replay(top, onto):
     head = git("rev-parse", onto, cwd=top).stdout.strip()
     for c in commits:
         parent = git("rev-parse", f"{c}^", cwd=top).stdout.strip()
-        mt = git("merge-tree", "--write-tree", "--name-only", f"--merge-base={parent}", head, c, cwd=top, check=False)
+        # 3 点（base=parent・ours=head・theirs=c）の merge を、git 2.38 から在る形だけで撃つ。
+        # `--merge-base=` は git 2.40 から＝macOS に元から在る Apple git 2.39 で落ちるので使わない。
+        # 代わりに head の木を parent の子として付け替えた仮の commit を作る（作業木に触れない・参照も作らない）＝
+        # 仮の commit と c の共通の祖先は parent 1 つになり、merge-tree が parent を base に選ぶ。
+        ours = subprocess.run(["git", "commit-tree", f"{head}^{{tree}}", "-p", parent, "-m", "replay の仮の commit"],
+                              cwd=top, capture_output=True, text=True,
+                              env={**os.environ, "GIT_AUTHOR_NAME": "replay", "GIT_AUTHOR_EMAIL": "replay@localhost",
+                                   "GIT_COMMITTER_NAME": "replay", "GIT_COMMITTER_EMAIL": "replay@localhost"})
+        if ours.returncode != 0:
+            raise Stop(2, f"❌ 仮の commit が作れない: {ours.stderr.strip()}")
+        mt = git("merge-tree", "--write-tree", "--name-only", ours.stdout.strip(), c, cwd=top, check=False)
         if mt.returncode == 1:
             files = mt.stdout.split("\n\n", 1)[0].splitlines()[1:]
             raise Stop(1, f"⚠️ 競合: 自席の commit {c[:8]} が上流と同じ所を変えている（{', '.join(files) or '不明'}）。"
@@ -358,11 +368,11 @@ def need_git():
     p = subprocess.run(["git", "--version"], capture_output=True, text=True)
     m = re.search(r"(\d+)\.(\d+)(?:\.\d+)?", p.stdout or "")
     if p.returncode != 0 or not m:
-        raise Stop(2, f"⛔ git の版が測れない（git --version: {(p.stdout or p.stderr).strip() or '出力なし'}）。git 2.40 以上が要る")
+        raise Stop(2, f"⛔ git の版が測れない（git --version: {(p.stdout or p.stderr).strip() or '出力なし'}）。git 2.38 以上が要る")
     have = (int(m.group(1)), int(m.group(2)))
     if have < GIT_MIN:
-        raise Stop(2, f"⛔ git 2.40 以上が要る（いま呼ばれる git は {m.group(0)}・{p.stdout.strip()}）。"
-                      f"この道具は git merge-tree --merge-base を使う。新しい git を入れたら、素の窓（env -i HOME=$HOME zsh -lc 'git --version'）でも新しい版が見えるか確かめてから撃ち直す")
+        raise Stop(2, f"⛔ git 2.38 以上が要る（いま呼ばれる git は {m.group(0)}・{p.stdout.strip()}）。"
+                      f"この道具は git merge-tree --write-tree を使う。新しい git を入れたら、素の窓（env -i HOME=$HOME zsh -lc 'git --version'）でも新しい版が見えるか確かめてから撃ち直す")
 
 
 def main(argv, cwd=None):
