@@ -17,12 +17,14 @@ BOX_KEYS はこの棚の箱の鍵で、CTO の箱の鍵（n・配車・repo・sc
             python3 scripts/kiroku.py --check 08プロジェクト/*/status.md
   kotae     答え済みの手番を残さない（巡回の席が毎周撃つ）。既定は並べるだけ・--apply で 手番 を空にして next に答えの id を書く
             結び方は器（CTO リポ scripts/kiroku.py の kotae）と同じ: 手番の『何を』の「答えの紙 <紙> … <鍵>」を帳簿の 焼き先＝答え の行に探す
-            python3 scripts/kiroku.py kotae 08プロジェクト [--apply]
+            python3 scripts/kiroku.py kotae 08プロジェクト                  見るだけ（どこで撃ってもよい・rc 0）
+            python3 scripts/kiroku.py kotae "$W/08プロジェクト" --apply   書く＝席の作業木の中だけ（W=$(python3 scripts/honjin_wt.py open <short_id> | tail -1)）
+              ⛔ 本体の作業木（全席の作業場所）では --apply を拒む（rc 2・1 字も書かない）。書いた道を stdout に 1 行ずつ＝honjin_wt.py push -- に渡す
   --vocab-diff <CTO の kiroku.py>   2 つの語彙表（STATES）を比べ、食い違えば exit 1（門）
             python3 scripts/kiroku.py --vocab-diff <CTO リポ>/scripts/kiroku.py
             BOX_KEYS は設計上別なので情報表示だけ（孔明裁定 2026-09-18・帳簿 id=450）
 """
-import argparse, ast, datetime as dt, json, os, re, sys
+import argparse, ast, datetime as dt, json, os, re, subprocess, sys
 
 # ============================== 語彙表（ここ 1 か所） ==============================
 # 箱の state（4 語）。CTO リポ scripts/kiroku.py の STATES と同じ語彙表（門: --vocab-diff）
@@ -441,20 +443,72 @@ def cmd_check(paths):
     return rc
 
 
+def _is_main_checkout(path):
+    """path が本体の作業木（git-dir と common-dir が同じ＝全席の作業場所）の中か。git でなければ False（git に載せない素の棚）。
+    式は器（CTO リポ scripts/kiroku.py の _is_main_checkout）と同じ。席の作業木（honjin_wt.py open が切る物）は git-dir が別なので False。"""
+    def git(*args):
+        p = subprocess.run(["git", *args], cwd=path, capture_output=True, text=True)
+        return p.stdout.strip() if p.returncode == 0 else ""
+    if not os.path.isdir(path):
+        return False
+    g = git("rev-parse", "--absolute-git-dir")
+    c = git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    return bool(g and c) and os.path.realpath(g) == os.path.realpath(c)
+
+
+def kotae_rewrite(text, ids):
+    """frontmatter の 手番 を空に・next の頭に答えの id を（next が無ければ 手番 の次に足す）。他の行は 1 バイトも変えない（器と同じ）。"""
+    m = FM_RE.match(text)
+    lines = m.group(1).split("\n")
+    head = "答え 帳簿 " + "・".join(ids) + "（kiroku.py kotae が手番を空にした）"
+    out, new_next, at, i = [], None, None, 0
+    while i < len(lines):
+        j = i + 1
+        while j < len(lines) and lines[j][:1].isspace():   # 字下げ行は直前の鍵の続き（parse_frontmatter と同じ読み）
+            j += 1
+        key = lines[i].split(":", 1)[0].strip() if ":" in lines[i] and not lines[i][:1].isspace() else None
+        if key == "手番":
+            out.append("手番: ")
+            at = len(out)
+        elif key == "next":
+            old = one_line(" ".join([lines[i].split(":", 1)[1]] + lines[i + 1:j]))
+            new_next = head + ("／" + old if old else "")
+            out.append("next: " + new_next)
+        else:
+            out.extend(lines[i:j])
+        i = j
+    if new_next is None:
+        new_next = head
+        out.insert(at, "next: " + new_next)
+    return text[:m.start(1)] + "\n".join(out) + text[m.end(1):]
+
+
 def cmd_kotae(a):
-    """答え済みの手番を並べる（--apply で 手番 を空にし、next の頭に答えの id を書く・本文は不変）。測れなければ 1 字も書かずに 2。"""
+    """答え済みの手番を並べる（--apply で 手番 を空にし、next の頭に答えの id を書く・他の行と本文は不変）。
+    出力の形は器（CTO リポの kotae）と同じ: 説明は stderr・書いた道だけを stdout に 1 行ずつ（honjin_wt.py push -- にそのまま渡せる）。
+    ⛔ 本体の作業木（全席の作業場所）では --apply を撃たない＝席の作業木（honjin_wt.py open）の中の 08プロジェクト で撃つ。
+    rc: 0＝通った（見るだけで答え済みが在っても 0）／2＝本体の作業木で --apply・置き場が無い・帳簿を測れない（どれも 1 字も書いていない）。"""
+    for p in a.paths:
+        if not os.path.exists(p):
+            print(f"❌ 箱の置き場が無い: {p}", file=sys.stderr); return 2
+        if a.apply and _is_main_checkout(p if os.path.isdir(p) else (os.path.dirname(p) or ".")):
+            print("⛔ ここは本体の作業木（全席の作業場所）。--apply を撃たない。"
+                  "`python3 scripts/honjin_wt.py open <自分の short_id>` で席の作業木を切り、その中の 08プロジェクト で撃つ", file=sys.stderr)
+            return 2
     plans, unsure, cache = [], [], {}
     for box, sp in expand(a.paths):
-        if sp is None:
+        if sp is None or not os.path.isfile(sp):
             continue
-        text = open(sp, encoding="utf-8").read()
-        fm = parse_frontmatter(text) or {}
-        if dare_of(fm.get("手番")) != "主君" or one_line(fm.get("state")) in ("完了", "吸収済"):
+        with open(sp, "rb") as f:
+            raw = f.read()
+        text = raw.decode("utf-8")
+        fm = parse_frontmatter(text)
+        if fm is None or dare_of(fm.get("手番")) != "主君" or one_line(fm.get("state")) in ("完了", "吸収済"):
             continue
         name = rel(sp)
         sheet, keys = kotae_keys(teban_parts(fm.get("手番"))[1])
         if sheet is None:
-            print(f"結べない: {name}（{keys}）")
+            print(f"結べない: {name}（{keys}）", file=sys.stderr)
             continue
         ids, left = [], []
         for k in keys:
@@ -462,7 +516,7 @@ def cmd_kotae(a):
                 try:
                     cache[k] = kotae_lookup(k)
                 except OSError as e:
-                    print(f"🚨 測れない（exit 2・1 字も書いていない）: {e}")
+                    print(f"🚨 測れない（exit 2・1 字も書いていない）: {e}", file=sys.stderr)
                     return 2
             total, rows = cache[k]
             hit = [i for i, mark, tgt in rows if mark == KOTAE_MARK and kotae_names(tgt, sheet, k)]
@@ -473,28 +527,30 @@ def cmd_kotae(a):
             else:
                 left.append(k)
         if left:
-            print(f"揃わない: {name}（答えの紙 {sheet}・答えが帳簿に無い鍵: {'・'.join(left)}）")
+            print(f"揃わない: {name}（答えの紙 {sheet}・答えが帳簿に無い鍵: {'・'.join(left)}）", file=sys.stderr)
         elif not any(u.startswith(name + "（") for u in unsure):
-            plans.append((name, sp, text, fm, sorted(set(ids), key=int)))
+            plans.append((name, sp, raw, sorted(set(ids), key=int)))
     if unsure:
         for u in unsure:
-            print(f"🚨 測れない: {u}")
-        print("🚨 確かめきれない鍵が在る（exit 2・1 字も書いていない）")
+            print(f"🚨 測れない: {u}", file=sys.stderr)
+        print("🚨 確かめきれない鍵が在る（exit 2・1 字も書いていない）", file=sys.stderr)
         return 2
-    for name, sp, text, fm, ids in plans:
-        print(f"{'🧹' if a.apply else '❌'} {name}: 答え済み（答え 帳簿 {'・'.join(ids)}）")
-        if a.apply:
-            if open(sp, encoding="utf-8").read() != text:
-                print(f"⚠️ 読んだ後に変わった＝書かない: {name}")
+    wrote = 0
+    for name, sp, raw, ids in plans:
+        if not a.apply:
+            print(f"変える（見るだけ・--apply で書く）: {name}（手番を空・next の頭に 答え 帳簿 {'・'.join(ids)}）", file=sys.stderr)
+            continue
+        with open(sp, "rb") as f:
+            if f.read() != raw:
+                print(f"⚠️ 読んだ後に変わった＝書かない: {name}", file=sys.stderr)
                 continue
-            values = {key: fm.get(key, "") for key in BOX_KEYS}
-            old = one_line(fm.get("next"))
-            values["手番"] = ""
-            values["next"] = "答え 帳簿 " + "・".join(ids) + "（kiroku.py kotae が手番を空にした）" + ("／" + old if old else "")
-            values["updated"] = dt.date.today().isoformat()
-            open(sp, "w", encoding="utf-8").write(dump_frontmatter(values) + body_of(text))
-    print(f"答え済みの手番 {len(plans)} 箱" + ("（空にした）" if a.apply and plans else ""))
-    return 1 if plans and not a.apply else 0
+        with open(sp, "w", encoding="utf-8") as f:
+            f.write(kotae_rewrite(raw.decode("utf-8"), ids))
+        wrote += 1
+        print(f"書いた: {name}（手番を空・next の頭に 答え 帳簿 {'・'.join(ids)}）", file=sys.stderr)
+        print(os.path.abspath(sp))
+    print(f"答え済みの手番 {len(plans)} 箱" + (f"（{wrote} 箱を書いた）" if a.apply else "（見るだけ）"), file=sys.stderr)
+    return 0
 
 # ---------- --vocab-diff ----------
 def load_vocab(path):
