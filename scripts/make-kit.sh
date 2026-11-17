@@ -111,7 +111,8 @@ cut() {
   echo "== make-kit: $ROOT → $OUT"
   local rc=0 f b
   # 1) 雛形（地図・規則 3 枚・全体像の芯 1 枚・箱の README 3 枚）
-  for f in $(cd "$KIT" && find . -type f -not -name '.DS_Store' | sed 's#^\./##' | sort); do
+  # ⛔ __pycache__/・*.pyc は拾わない（道具を 1 度 import すると生まれ、中の機体の道を門が固有値と数えて切り出しが落ちる・箱 n=5093）
+  for f in $(cd "$KIT" && find . -type f -not -name '.DS_Store' -not -path '*/__pycache__/*' -not -name '*.pyc' | sed 's#^\./##' | sort); do
     # scripts/皆伝/ は皆伝の機体にだけ置く道具（席ごとの作業場所）＝器の写し（scripts/kit/）にだけ入れ、置くのは honjin.py kaiden
     case "$f" in scripts/皆伝/*) maybe_copy "scripts/kit/$f" "scripts/kit/$f" || rc=1; continue;; esac
     maybe_copy "scripts/kit/$f" "$f" || rc=1
@@ -242,6 +243,13 @@ selftest() {
   local kit="$t/kit"
   step() { echo "🔬 $*"; }
   step "1 素の切り出し"; bash "$0" "$kit" > "$t/cut.log" 2>&1 || { cat "$t/cut.log"; die "selftest: 切り出しが exit 0 にならない"; }
+  step "1-1 道具を import して __pycache__ ができた写しでも切り出しが通る（.pyc を配らない・負制御こみ）"
+  local kp="$t/kit-pyc"; cp -R "$kit" "$kp" || die "selftest: 器の写しが作れない"
+  ( cd "$kp/scripts/kit/scripts/kit-ingest" && python3 -c 'import verify_complete' ) || die "selftest: kit-ingest/verify_complete を import できない"
+  mkdir -p "$kp/scripts/kit/scripts/__pycache__" && printf '%s\n' "$HOME/検体の機体の道" > "$kp/scripts/kit/scripts/__pycache__/検体.cpython-0.pyc"
+  bash "$GATE" "$kp/scripts/kit/scripts/__pycache__/検体.cpython-0.pyc" > /dev/null 2>&1 && die "selftest: 機体の道を入れた .pyc を門が数えない（1-1 の負制御が組めない）"
+  bash "$kp/scripts/make-kit.sh" "$t/kit-pyc-out" > "$t/cut-pyc.log" 2>&1 || { cat "$t/cut-pyc.log"; die "selftest: __pycache__ の在る写しから切り出すと落ちる（.pyc を拾った）"; }
+  [ -z "$(find "$t/kit-pyc-out" \( -name '__pycache__' -o -name '*.pyc' \) -print)" ] || die "selftest: 切り出した器に __pycache__ か .pyc が入った"
   step "3 fill（{名前} を埋める・冪等・scripts/ には触れない）"
   ( cd "$kit" && find scripts -type f -exec shasum {} + | sort ) > "$t/scripts.before"
   bash "$0" --fill "$kit" 名前=検体 呼ばれ方=主君 事業名=検体商店 棚の名前=検体の棚 棚の置き場="$kit" "git remote=検体remote" > /dev/null || die "selftest: fill が落ちた"
