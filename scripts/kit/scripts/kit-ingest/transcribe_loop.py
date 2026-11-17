@@ -23,7 +23,7 @@ engine（auto は上から順に在る物）:
   - 発話密度（行数÷分）を .meta.json に残す。正常は 16〜25 行/分。外れ値は門が一覧に出す（暴走・無音・言語違い）
   - 書き出しは NFC に固定（macOS のファイル名は NFD）
 """
-import argparse, datetime as dt, json, os, shutil, subprocess, sys, time, unicodedata
+import argparse, tempfile, datetime as dt, json, os, shutil, subprocess, sys, time, unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from verify_complete import MEDIA_EXT, has_audio, probe_duration  # noqa: E402
@@ -70,13 +70,21 @@ def write_outputs(outbase, segments, text):
 
 def run_mlx(f, outdir, id_, model, lang):
     # --output-name=<id> は必ず = で繋ぐ（先頭ハイフンの id を離して渡すとオプションと読まれて落ちる。実弾 1 本目で踏んだ）
+    # 出力名は id でなく仮の名（mlx は output-name の最後のドット以降を拡張子と読んで落とす＝"Vo.Bass" が "Vo" になる）。
+    # 仮の名で書かせてから id に改名する。先頭ハイフンの id も同時に避けられる
+    tmp = tempfile.mkdtemp(prefix="mlx-", dir=outdir)
     cmd = ["mlx_whisper", f, "--model", f"mlx-community/whisper-{model}", "--language", lang, "--task", "transcribe",
-           f"--output-dir={outdir}", f"--output-name={id_}", "--output-format", "all",
+           f"--output-dir={tmp}", "--output-name=out", "--output-format", "all",
            "--condition-on-previous-text", "False", "--hallucination-silence-threshold", "2", "--no-speech-threshold", "0.5",
            "--verbose", "False"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
+        shutil.rmtree(tmp, ignore_errors=True)
         return False, (r.stderr or "")[-300:]
+    for name in os.listdir(tmp):
+        if name.startswith("out."):
+            os.replace(os.path.join(tmp, name), os.path.join(outdir, id_ + name[3:]))
+    shutil.rmtree(tmp, ignore_errors=True)
     # mlx は NFD で書くことがあるので .txt を NFC に揃える
     p = os.path.join(outdir, id_ + ".txt")
     if os.path.isfile(p):

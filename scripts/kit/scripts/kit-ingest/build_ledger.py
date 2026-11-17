@@ -8,6 +8,9 @@
 入力（読むだけ・書き換えない）:
   <棚>/コンテクスト銀行/<key>.md          カード（frontmatter に key・source・id・kind・why・orig_title・duration_min・chars・drive）
   <棚>/01商品資産〜05バックオフィス資産/**/*.md  仕訳先（frontmatter に key）。同じカードが複数に在れば " | " で並べる
+  <棚>/10私用/<箱>/… 見せない箱（git 外）に寄せたカードと仕訳先も同じ形で読み、行は台帳に残す（人の裁定で口座番号などを棚から外した物。
+                     別の機体には 10私用 が無いので、台帳 CSV の行が「何が在ったか」の正本になる）。
+                     ⛔ その行の 題・理由 は「（私用）」、drive は空にする（台帳は git に載る＝見せない箱の文を写さない）
   <棚>/コンテクスト銀行/_台帳-面.csv       在れば列 `仕訳しない種類` だけ読む（その面の 種類 を `／` 区切り）。
                                           その面・その種類で仕訳先が空の行は `仕訳先` に「（仕訳しない）」と書き、未仕訳から外す。
                                           列が無い・空なら 仕訳しない は 0（今までどおり）
@@ -23,7 +26,7 @@
 import argparse, csv, os, re, sys, tempfile, unicodedata
 
 # 仕訳先として走査する内容軸（メモリシステムの内容軸。面 → ここへの対応表は メモリシステム.md が正本）
-DOMAINS = ["01商品資産", "02マーケティング資産", "03セールス資産", "04オペレーション資産", "05バックオフィス資産"]
+DOMAINS = ["01商品資産", "02マーケティング資産", "03セールス資産", "04オペレーション資産", "05バックオフィス資産", "07学習資産"]  # 07 は他人の物の行き先（メモリシステム「判定の 3 問」2）
 
 
 def frontmatter(path):
@@ -48,6 +51,7 @@ def nfc(s):
 
 
 NO_SORT = "（仕訳しない）"
+PRIVATE_MASK = "（私用）"   # 10私用 の行の 題・理由 に入れる（中身は git 外の箱にだけ在る）
 NO_SORT_COL = "仕訳しない種類"
 
 
@@ -82,35 +86,54 @@ def main(argv):
         ap.error("--shelf が要る")
     cards_dir = os.path.join(a.shelf, "コンテクスト銀行")   # 2026-09-20 の改名の後の置き場
     out = a.out or os.path.join(cards_dir, "_台帳.csv")
+    # 読む根は 棚そのもの ＋ 見せない箱の中の箱（10私用/<箱>/）。どの根も同じ形（コンテクスト銀行/ と内容軸）で読む
+    roots = [a.shelf]
+    private_root = os.path.join(a.shelf, "10私用")
+    if os.path.isdir(private_root):
+        roots += [os.path.join(private_root, b) for b in sorted(os.listdir(private_root))
+                  if os.path.isdir(os.path.join(private_root, b, "コンテクスト銀行"))]
     tree = {}
-    for box in DOMAINS:
-        d = os.path.join(a.shelf, box)
-        if not os.path.isdir(d):
-            continue
-        for dp, dns, fns in os.walk(d):
-            dns.sort()
-            for n in sorted(fns):
-                if n.endswith(".md") and n != "README.md":
-                    k = frontmatter(os.path.join(dp, n)).get("key")
-                    if k:
-                        tree.setdefault(k, []).append(os.path.relpath(os.path.join(dp, n), a.shelf))
+    for root in roots:
+        for box in DOMAINS:
+            d = os.path.join(root, box)
+            if not os.path.isdir(d):
+                continue
+            for dp, dns, fns in os.walk(d):
+                dns.sort()
+                for n in sorted(fns):
+                    if n.endswith(".md") and n != "README.md":
+                        k = frontmatter(os.path.join(dp, n)).get("key")
+                        if k:
+                            # 見せない箱の中の仕訳先は名前を写さず「10私用/<箱>（私用）」だけ（ファイル名に題が出る）
+                            at = os.path.relpath(os.path.join(dp, n), a.shelf) if root == a.shelf \
+                                else os.path.relpath(root, a.shelf) + PRIVATE_MASK
+                            if at not in tree.get(k, []):
+                                tree.setdefault(k, []).append(at)
     no_sort = read_no_sort(a.face_ledger or os.path.join(cards_dir, "_台帳-面.csv"))
     rows = []
-    if os.path.isdir(cards_dir):
-        for n in sorted(os.listdir(cards_dir)):
+    for root in roots:
+        cdir = os.path.join(root, "コンテクスト銀行")
+        if not os.path.isdir(cdir):
+            continue
+        for n in sorted(os.listdir(cdir)):
             if not n.endswith(".md") or n == "README.md":
                 continue
-            p = os.path.join(cards_dir, n); fm = frontmatter(p)
+            p = os.path.join(cdir, n); fm = frontmatter(p)
             if not fm.get("key"):
                 continue
             face, kind = nfc(fm.get("source", "")), nfc(fm.get("kind", ""))
             placed_at = " | ".join(tree.get(fm["key"], []))
-            if not placed_at and kind and kind in no_sort.get(face, ()):
+            if not placed_at and fm.get("kind") == "私用":
+                placed_at = "（私用・棚に入れない）"
+            elif not placed_at and kind and kind in no_sort.get(face, ()):
                 placed_at = NO_SORT
+            private = root != a.shelf   # 10私用/<箱>/ のカード＝見せない物。台帳（git に載る）には在ったことだけ残し、題・理由・drive は写さない
             rows.append([nfc(fm["key"]), face, kind, nfc(fm.get("id", "")),
-                         nfc(fm.get("orig_title", "")), nfc(fm.get("duration_min", "") or fm.get("chars", "")),
-                         nfc(fm.get("drive", "")), os.path.relpath(p, a.shelf),
-                         placed_at, nfc(fm.get("why", "")), "", ""])
+                         PRIVATE_MASK if private else nfc(fm.get("orig_title", "")),
+                         nfc(fm.get("duration_min", "") or fm.get("chars", "")),
+                         "" if private else nfc(fm.get("drive", "")), os.path.relpath(p, a.shelf),
+                         placed_at, PRIVATE_MASK if private else nfc(fm.get("why", "")), "", ""])
+    rows.sort(key=lambda r: r[0])
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)

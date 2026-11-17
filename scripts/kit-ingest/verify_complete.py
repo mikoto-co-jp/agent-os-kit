@@ -23,6 +23,66 @@ import argparse, csv, glob, os, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 MEDIA_EXT = (".mp4", ".m4a", ".mp3", ".mov", ".mkv", ".webm", ".wav", ".m4v", ".aac", ".ogg", ".flac")
+# 文書・画像（媒体でない資産）。取得の門は「読める」で判定する（尺は無い）。文字は extract_text.py が出す
+DOC_EXT = (".pdf", ".docx", ".pptx", ".xlsx", ".pages", ".key", ".numbers", ".txt", ".md", ".html", ".htm", ".eml",
+           ".rtf", ".srt", ".vtt", ".json", ".csv", ".tsv", ".doc", ".ppt", ".xls")
+IMG_EXT = (".png", ".jpg", ".jpeg", ".heic", ".gif", ".webp", ".svg", ".tif", ".tiff", ".bmp")
+ASSET_EXT = MEDIA_EXT + DOC_EXT + IMG_EXT
+
+
+def doc_readable(path):
+    """文書・画像が開けるか（途中で切れた zip 系・空の PDF を落とす）。(ok, 理由)。"""
+    import zipfile
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        if ext == ".pdf":
+            with open(path, "rb") as f:
+                head = f.read(5)
+            if head != b"%PDF-":
+                return False, "PDF の頭が無い"
+            pi = shutil.which("pdfinfo")
+            if pi:
+                r = subprocess.run([pi, os.path.abspath(path)], capture_output=True, text=True)
+                if r.returncode != 0 or "Pages:" not in r.stdout:
+                    if "password" in (r.stderr or "").lower():
+                        return True, "ok pdf（合言葉つき）"
+                    return False, "pdfinfo が読めない（途中で切れている）"
+            return True, "ok pdf"
+        if ext in (".docx", ".pptx", ".xlsx", ".pages", ".key", ".numbers"):
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as z:
+                    if z.testzip() is not None:
+                        return False, "zip が壊れている"
+                return True, "ok " + ext[1:]
+            if ext in (".pages", ".key", ".numbers") and os.path.isdir(path):
+                return True, "ok " + ext[1:] + "（束）"
+            return False, "zip として開けない"
+        if ext in IMG_EXT:
+            with open(path, "rb") as f:
+                head = f.read(16)
+            if ext == ".svg" or head[:4] in (b"\x89PNG", b"GIF8", b"RIFF", b"II*\x00", b"MM\x00*") or head[:2] == b"BM" or head[:3] == b"\xff\xd8\xff" or head[4:8] == b"ftyp":
+                return True, "ok image"
+            return False, "画像の頭が無い（拡張子と中身が違う）"
+        with open(path, "rb") as f:
+            raw = f.read(1 << 16)
+        if ext in (".doc", ".ppt", ".xls"):
+            return True, "ok " + ext[1:]
+        bad = raw.decode("utf-8", "replace").count("\ufffd")
+        if bad and bad > max(8, len(raw) // 100):   # 1% を超えて壊れている物だけ落とす（数バイトの混入は原文のまま通す）
+            # utf-16 はほぼどのバイト列でも読めてしまう＝BOM が在るときだけ。cp932 は 64KB の切れ目で割れた末尾 1 バイトを許す
+            cands = [raw, raw[:-1]] if raw[:2] not in (b"\xff\xfe", b"\xfe\xff") else []
+            for chunk in cands:
+                try:
+                    chunk.decode("cp932"); break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                if raw[:2] not in (b"\xff\xfe", b"\xfe\xff"):
+                    return False, "文字として読めない"
+        return True, "ok text"
+    except OSError as e:
+        return False, f"開けない {e}"
+
 COLS = ["source", "id", "url", "size_bytes", "duration_sec", "title", "container", "fetched_at"]
 
 
@@ -62,6 +122,9 @@ def good(path, size=None, duration=None, tol=2.0):
     if size:
         if got < int(size) * 97 // 100:
             return False, f"バイト不足 {got}/{size}"
+    if os.path.splitext(path)[1].lower() not in MEDIA_EXT:
+        ok, why = doc_readable(path)
+        return ok, (f"{why} {got}B" if ok else why)
     d = probe_duration(path)
     if d is None:
         return False, "ffprobe が尺を読めない（途中で切れている）"
@@ -91,7 +154,7 @@ def media_path(work, source, id_):
         return None
     for name in sorted(os.listdir(d)):
         stem, ext = os.path.splitext(name)
-        if stem == id_ and ext.lower() in MEDIA_EXT and ".part" not in name and ".temp" not in name:
+        if stem == id_ and ext.lower() in ASSET_EXT and ".part" not in name and ".temp" not in name:
             return os.path.join(d, name)
     return None
 

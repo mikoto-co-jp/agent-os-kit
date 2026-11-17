@@ -18,7 +18,7 @@ rclone の罠（元の棚の実測）: copyto は宛先に同名があると古�
 import argparse, hashlib, os, shutil, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from verify_complete import MEDIA_EXT  # noqa: E402
+from verify_complete import ASSET_EXT  # noqa: E402
 
 FORBIDDEN = ("delete", "purge", "sync", "move", "moveto", "rmdir", "rmdirs", "cleanup", "deletefile")
 
@@ -40,6 +40,68 @@ def rclone(args, dry):
     return r.returncode, r.stdout + r.stderr
 
 
+def batch(a):
+    """面ごとに 1 回の copy。数百〜数千本の面で 1 本ずつ撃つと一覧 API が本数ぶん走って二乗で遅くなるので、こちらを使う。"""
+    if not a.dry_run and not shutil.which("rclone"):
+        print("⛔ rclone が無い（席が入れる。人に入れさせない）"); return 4
+    media_root = os.path.join(a.work, "media")
+    sources = [a.source] if a.source else (sorted(os.listdir(media_root)) if os.path.isdir(media_root) else [])
+    total_ok = total = total_dups = 0
+    for src in sources:
+        d = os.path.join(media_root, src)
+        if not os.path.isdir(d):
+            continue
+        names = [n for n in sorted(os.listdir(d)) if os.path.splitext(n)[1].lower() in ASSET_EXT and ".part" not in n]
+        if not names:
+            continue
+        dest = f"{a.remote}:{a.folder.rstrip('/')}/{src}/"
+        pdir = os.path.join(a.work, "placed", src); os.makedirs(pdir, exist_ok=True)
+        # 錠: 同じ面を 2 本の処理で同時に copy すると Drive は同名を許すので写しが 2 本できる（実測 2026-11-01: 面 1 つで 5 本）。mkdir は原子的
+        lock = os.path.join(a.work, "placed", src + ".lock")
+        try:
+            os.mkdir(lock)
+        except FileExistsError:
+            print(f"⛔ 面 {src} は別の処理が置いている最中（{lock} が在る）。終わってから撃つ。止まった処理の残骸なら rmdir で外す")
+            total += len(names); continue
+        try:
+            print(f"put 面 {src}: {len(names)} 本 → {dest}")
+            # 置くのは数えた names だけ（フォルダ丸ごとだと取得途中の .part や拡張子の外の物まで置く）
+            lst = os.path.join(a.work, "placed", src + ".files")
+            with open(lst, "w", encoding="utf-8") as f:
+                f.write("".join(n + "\n" for n in names))
+            rc, out = rclone(["copy", "--copy-links", "--transfers", str(a.transfers), "--checkers", "8", "--stats-one-line", "--stats", "60s",
+                              "--files-from-raw", lst, os.path.abspath(d), dest], a.dry_run)
+            os.remove(lst)
+            if rc != 0:
+                print(f"  ⛔ copy 失敗 {out[-300:]}")
+            # 別経路: 一覧 API の md5 を 1 回で取り、全数と突き合わせる
+            rc, out = rclone(["lsf", "--format", "psh", "--hash", "MD5", "--files-only", dest], a.dry_run)
+        finally:
+            os.rmdir(lock)
+        remote, seen = {}, {}
+        for line in out.splitlines():
+            parts = line.rsplit(";", 2)
+            if len(parts) == 3:
+                remote[parts[0]] = parts[2]; seen[parts[0]] = seen.get(parts[0], 0) + 1
+        dups = sorted(n for n, c in seen.items() if c > 1)
+        if dups:
+            # 消すのは人（Web の画面）。この道具は消さない（X-3）
+            print(f"  ⛔ 同名の写しが {len(dups)} 件（例: {dups[:3]}）。並走の写しの重なり。消すのは人が画面で 1 本ずつ")
+        ok = 0
+        for n in names:
+            stem = os.path.splitext(n)[0]
+            if os.path.isfile(os.path.join(pdir, stem + ".ok")):
+                ok += 1; continue
+            lm = md5_local(os.path.join(d, n))
+            if remote.get(n) == lm:
+                open(os.path.join(pdir, stem + ".ok"), "w").write(lm + "\n"); ok += 1
+        miss = [n for n in names if not os.path.isfile(os.path.join(pdir, os.path.splitext(n)[0] + ".ok"))]
+        print(f"  面 {src}: 置いた一覧 {len(remote)}・md5 一致 {ok}/{len(names)}" + (f"・不一致/未着 {len(miss)}（例: {miss[:3]}）" if miss else ""))
+        total_ok += ok; total += len(names); total_dups += len(dups)
+    print(f"--- 全体: md5 一致 {total_ok}/{total}・同名の写し {total_dups}")
+    return 0 if total_ok == total and total_dups == 0 else 1
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", required=True)
@@ -48,7 +110,12 @@ def main(argv):
     ap.add_argument("--source", default="")
     ap.add_argument("--id", default="")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--batch", action="store_true",
+                    help="面ごとに 1 回で置く（rclone copy をフォルダ単位・並列）。確かめ方は同じ＝一覧の md5 とローカルの md5 を全数で突き合わせ、一致した物だけ .ok")
+    ap.add_argument("--transfers", type=int, default=8)
     a = ap.parse_args(argv)
+    if a.batch:
+        return batch(a)
     if not a.dry_run and not shutil.which("rclone"):
         print("⛔ rclone が無い（席が入れる。人に入れさせない）"); return 4
     media_root = os.path.join(a.work, "media")
@@ -63,13 +130,13 @@ def main(argv):
         pdir = os.path.join(a.work, "placed", src); os.makedirs(pdir, exist_ok=True)
         for name in sorted(os.listdir(d)):
             stem, ext = os.path.splitext(name)
-            if ext.lower() not in MEDIA_EXT or ".part" in name or (a.id and stem != a.id):
+            if ext.lower() not in ASSET_EXT or ".part" in name or (a.id and stem != a.id):
                 continue
             if os.path.isfile(os.path.join(pdir, stem + ".ok")):
                 print(f"skip {src}/{stem}（別経路で確認済み）"); verified += 1; eligible.append(os.path.join(d, name)); continue
             local = os.path.abspath(os.path.join(d, name))
             print(f"put {src}/{name} → {dest}")
-            rc, out = rclone(["copy", "--ignore-times", "--no-traverse", local, dest], a.dry_run)
+            rc, out = rclone(["copy", "--ignore-times", "--no-traverse", "--copy-links", local, dest], a.dry_run)
             if a.dry_run:
                 rclone(["lsf", "--format", "psh", "--hash", "MD5", "--files-only", dest], True)
                 print(f"  → 比べる: ローカル md5 と一覧の md5 が同じなら placed/{src}/{stem}.ok を置く")
@@ -81,7 +148,7 @@ def main(argv):
             rc, out = rclone(["lsf", "--format", "psh", "--hash", "MD5", "--files-only", dest], False)
             remote_md5 = ""
             for line in out.splitlines():
-                parts = line.split(";")
+                parts = line.rsplit(";", 2)
                 if len(parts) == 3 and parts[0] == name:
                     remote_md5 = parts[2]
             lm = md5_local(local)
