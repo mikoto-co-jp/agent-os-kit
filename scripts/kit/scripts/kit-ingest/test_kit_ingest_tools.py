@@ -8,6 +8,8 @@
 import csv, importlib, io, os, shutil, stat, subprocess, sys, tempfile, unittest, zipfile
 from contextlib import redirect_stdout
 
+sys.dont_write_bytecode = True   # 試験が __pycache__ を作ると make-kit の切り出しが .pyc（中に機体の道）を固有値として落とす
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"   # 子のプロセス（--selftest）にも
 HERE = os.environ.get("KIT_INGEST_DIR") or os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
