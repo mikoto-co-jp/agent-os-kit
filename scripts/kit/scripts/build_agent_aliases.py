@@ -106,7 +106,10 @@ def read_clock(sched_json: Path) -> list:
 
 def refresh_from_schedules(shelf: Path, sources: list):
     """時計の控え（routine の routines.json・scheduler の schedules.json）で 台帳-便 の
-    cron・時刻・便・agent・状態 を書き戻す。正本 は触らない。routine には agent が無い（空で書く）。"""
+    cron・時刻・便・agent・状態 を書き戻す。正本 は触らない。routine には agent が無い（空で書く）。
+    🔑 時刻 は人の列でもある（2026-11-18 会員の報告）。cron から作れない便（30 分ごとに起こして最初の 1 回だけ走る朝の時計など）は
+    人が時刻を書く。⇒ 上書きしてよいのは「空」か「前の cron から機械が作った値のまま」の行だけ。それ以外（人が書いた値）は残す。
+    新しい行・空の行は hhmm() で埋め、読めなければ空のまま（検査が数える）。"""
     scheds = [s for src in sources for s in read_clock(src)]
     led = shelf / BIN_LEDGER
     rows = read_ledger(led)
@@ -121,8 +124,11 @@ def refresh_from_schedules(shelf: Path, sources: list):
             r["id"] = sid
             r["便"] = safe(str(s.get("label", ""))).split("（")[0].split("(")[0].strip()
             rows.append(r); by_id[sid] = r; added.append(sid)
-        r["cron"] = str(s.get("cron", ""))
-        r["時刻"] = hhmm(r["cron"])
+        old_cron, new_cron = r.get("cron", ""), str(s.get("cron", ""))
+        cur = (r.get("時刻") or "").strip()
+        if not cur or cur == hhmm(old_cron):          # 機械が作った値（か空）だけ cron に追随させる
+            r["時刻"] = hhmm(new_cron)
+        r["cron"] = new_cron
         r["agent"] = str(s.get("agent", ""))
         r["状態"] = "止まっている" if s.get("paused") else "稼働"
     live = {str(s.get("id", ""))[:8] for s in scheds}
@@ -216,6 +222,14 @@ def check(shelf: Path):
         boxes = {w.split("/")[0] for w in where}
         if len(boxes) > 1:
             bad.append(f"❌ 二重起動（{' と '.join(sorted(boxes))} に同じ席）: {tgt}")
+    for r in read_ledger(shelf / BIN_LEDGER):        # 3. 稼働の便に時刻が無い＝別名が ____- に崩れる
+        if r.get("状態", "") == "稼働" and not (r.get("時刻") or "").strip():
+            bad.append(f"❌ 時刻が空（稼働の便）: {r.get('id','?')} {r.get('便','?')}（cron {r.get('cron','')}・台帳の 時刻 に人が書く）")
+    d = shelf / BIN_BOX
+    if d.is_dir():                                   # 4. 頭が ____ の別名＝時刻の無い便が張られている
+        for f in sorted(d.iterdir()):
+            if f.name.startswith("____"):
+                bad.append(f"❌ 別名の頭に時刻が無い: {BIN_BOX}/{f.name}")
     return bad
 
 
@@ -242,10 +256,18 @@ def selftest():
         (shelf / BIN_BOX / "実体.md").write_text("これは symlink ではない")
         if not any("実体が居る" in x for x in check(shelf)):
             print("❌ selftest D: 実体の居座りを検出しなかった"); return 1
-        if (e := _selftest_readonly(tmp)):
-            print(e); return 1
-        print("✅ selftest 5 段（A 健全で通る・B 迷子で落ちる・C 二重起動で落ちる・D 実体で落ちる・"
-              "E 引数なしと --check は台帳を書かず --write だけが書く）")
+        (shelf / BIN_BOX / "実体.md").unlink()
+        (shelf / BIN_BOX / "____-時刻なし.md").symlink_to("../00マイエージェント/x.md")
+        (shelf / BIN_LEDGER).write_text("id,cron,時刻,便,正本,agent,状態,備考\nabcd0001,\"0,30 * * * *\",,時刻なし,,,稼働,\n", encoding="utf-8")
+        b = check(shelf)
+        if not any("時刻が空" in x for x in b) or not any("頭に時刻が無い" in x for x in b):
+            print("❌ selftest G: 稼働の便の時刻が空・頭が ____ の別名を数えなかった"); return 1
+        for e in (_selftest_readonly(tmp), _selftest_keep_human_time(tmp)):
+            if e:
+                print(e); return 1
+        print("✅ selftest 7 段（A 健全で通る・B 迷子で落ちる・C 二重起動で落ちる・D 実体で落ちる・"
+              "E 引数なしと --check は台帳を書かず --write だけが書く・F 人の書いた時刻が --write の後も残る・"
+              "G 時刻が空の稼働の便と ____ の別名を数える）")
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -272,6 +294,37 @@ def _selftest_readonly(tmp: Path):
     return None
 
 
+def _selftest_keep_human_time(tmp: Path):
+    """F: 人が書いた時刻（cron から作れない 0830・2330・毎15分）は --write の後も残り、機械が作った時刻（2100）は cron の変更に
+    追随し、新しい便は hhmm() で埋まる。別名は ____- にならない。戻りは失敗の文か None。"""
+    root = tmp / "F"; shelf = root / SHELF
+    (shelf / BIN_BOX).mkdir(parents=True); (shelf / KOMEI_BOX).mkdir()
+    (shelf / "x.md").write_text("x", encoding="utf-8")
+    led = shelf / BIN_LEDGER
+    led.write_text(
+        "id,cron,時刻,便,正本,agent,状態,備考\n"
+        "aaaa0001,\"0,30 8-22 1-3,15-17 * *\",0830,朝の時計,06エージェント資産/x.md,,稼働,\n"
+        "aaaa0002,\"0,30 * * * *\",2330,夜の時計,06エージェント資産/x.md,,稼働,\n"
+        "aaaa0003,*/15 9-23 * * *,毎15分,見張り,06エージェント資産/x.md,,稼働,\n"
+        "aaaa0004,0 21 * * *,2100,夜の便,06エージェント資産/x.md,,稼働,\n", encoding="utf-8")
+    clock = tmp / "clockF.json"
+    clock.write_text(json.dumps({"schedules": [
+        {"id": "aaaa0001", "label": "朝の時計", "cron": "0,30 8-22 1-3,15-17 * *"},
+        {"id": "aaaa0002", "label": "夜の時計", "cron": "0,30 * * * *"},
+        {"id": "aaaa0003", "label": "見張り", "cron": "*/15 9-23 * * *"},
+        {"id": "aaaa0004", "label": "夜の便", "cron": "0 22 * * *"},
+        {"id": "aaaa0005", "label": "新しい便", "cron": "5 6 * * *"}]}), encoding="utf-8")
+    env = {**os.environ, "MIKOTO_OS_ROOT": str(root), "SCHEDULER_STATE": str(clock)}
+    subprocess.run([sys.executable, __file__, "--write"], env=env, capture_output=True)
+    got = {r["id"]: r["時刻"] for r in read_ledger(led)}
+    want = {"aaaa0001": "0830", "aaaa0002": "2330", "aaaa0003": "毎15分", "aaaa0004": "2200", "aaaa0005": "0605"}
+    if got != want:
+        return f"❌ selftest F: --write の後の時刻が違う（期待 {want}・実際 {got}）＝人の書いた時刻を上書きした"
+    if any(f.name.startswith("____") for f in (shelf / BIN_BOX).iterdir()):
+        return "❌ selftest F: 別名が ____- に崩れた"
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--schedules", help="時計の控えの代わりに読む JSON（schedules.json か routines.json。既定は自分で見つける）")
@@ -286,11 +339,11 @@ def main():
     shelf = ROOT / SHELF
     if not shelf.is_dir():
         print(f"❌ 棚が無い: {shelf}"); return 2
-    if a.check or not (a.write or a.no_refresh):
+    if a.check or not (a.write or a.no_refresh or a.drift):
         if a.schedules:
             print("⚠️ --schedules は --write と一緒のときだけ読む（今は検査だけ）")
         bad = check(shelf)
-        print("\n".join(bad) if bad else "✅ 検査 0 件（迷子なし・二重起動なし・実体の居座りなし）")
+        print("\n".join(bad) if bad else "✅ 検査 0 件（迷子なし・二重起動なし・実体の居座りなし・稼働の便の時刻の空なし）")
         return 1 if bad else 0
     if a.drift:
         srcs = ([Path(a.schedules)] if Path(a.schedules).exists() else []) if a.schedules else clock_states()
