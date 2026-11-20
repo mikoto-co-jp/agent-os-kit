@@ -32,7 +32,7 @@ GATE="$ROOT/scripts/check-distributable.sh"
 
 # ============================== 配る物（固定リスト。`scripts/*` を舐めない）==============================
 # 当社固有の生成器（course/・register/・経理/・mirror_*.py・build_distribution_ledgers.py ほか）は入れない。足すならここに 1 行
-KIT_TOOLS="kiroku.py build_scope_progress.py build_agent_aliases.py check-distributable.sh make-kit.sh honjin.py test_build_scope_progress_kigen.py"
+KIT_TOOLS="kiroku.py build_scope_progress.py build_agent_aliases.py check-distributable.sh make-kit.sh honjin.py test_build_scope_progress_kigen.py test_build_scope_progress_bin.py"
 KIT_HOOKS="pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-commit-box.sh"
 # 資産の引き上げ席が呼ぶ道具（下の 2 行で合わせて 11 本＝kit-ingest 10 ＋ sms 1。無いとその席は配っても最初の門で止まる）
 KIT_INGEST="verify_complete.py verify_pages.py fetch_one.py transcribe_loop.py drive_put.py build_ledger.py manifest_add.py inventory_youtube.py verify_cards.py gate.py"
@@ -266,6 +266,9 @@ selftest() {
   # ⏳ 全体像 §9 期限（金庫の鍵）: 検体 2 件で近い順・🔴／一覧なしは「取得不能」／15 日先に印なし／期限の無い項目は出ない／§8 の後ろ（陰性対照つき）
   python3 "$kit/scripts/test_build_scope_progress_kigen.py" > "$t/kigen.log" 2>&1 || { cat "$t/kigen.log"; die "selftest: 期限の節の試し（test_build_scope_progress_kigen.py）が赤"; }
   echo "🔬 selftest: ✅ §9 期限は検体で近い順・🔴 を付け、一覧なしは「取得不能」と出す"
+  # ⏱ 全体像 §5 の便の数え方: fail は error／timeout だけ・窓の便名を括弧の頭の英語名と routine の name でも引く・check だけ／未発火は実行未記録と別の欄（陰性対照つき）
+  python3 "$kit/scripts/test_build_scope_progress_bin.py" > "$t/bin.log" 2>&1 || { cat "$t/bin.log"; die "selftest: 便の数え方の試し（test_build_scope_progress_bin.py）が赤"; }
+  echo "🔬 selftest: ✅ §5 便は落ちた周だけ fail・英語名と name で窓を引き・席が立たない便を別の欄に出す"
   ( cd "$kit" && python3 scripts/kiroku.py box --slug 2000-01-01-検体 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: kiroku.py box が落ちた"
   ( cd "$kit" && python3 scripts/kiroku.py --check 08プロジェクト > /dev/null ) || die "selftest: kiroku.py --check が正しい箱で落ちる"
   step "4-1 routine だけの機体（~/.claude/scheduler/ が無く ~/.claude/routine/ だけ）で生成器 2 本が走る（負制御こみ）"

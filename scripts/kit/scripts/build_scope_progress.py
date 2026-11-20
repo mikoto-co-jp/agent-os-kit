@@ -16,14 +16,21 @@
                       ＋ 再開の合図＝09アーカイブ/案件/ の箱で resume が非空（投げ終わった箱。朝廷が毎朝 1 件ずつ引く）
   5. Routine          時計の控え＝routine の ~/.claude/routine/routines.json（初伝から使える既定の時計）と、
                       皆伝の機体なら scheduler の ~/.claude/scheduler/schedules.json も。在る方を全部読んで 1 表に合わせる
-                      （片方だけの機体で足りる・--schedules <json> で 1 本に差し替え可）。最終発火は控えの隣の runs.log／fires.log。
+                      （片方だけの機体で足りる・--schedules <json> で 1 本に差し替え可）。最終発火は控えの隣の runs.log／fires.log
+                      （月替わりで畳まれた fires-YYYY-MM.log も読む）。
+                      頭の数字: fail＝最後の発火か、席が起きた最後の回（skipped_* と check 自体の落ちを除く）が error／timeout。
+                      見張りが「用無し」と答えた周（skipped_policy）・前の回が走っている周（skipped_running）・席が自分で閉じた回
+                      （done_self）は落ちではない。
+                      実行未記録＝scheduler の止めていない便で、席が 1 回でも起きたのに窓に 1 行も無い物（routine と 1 度も起きていない便は数えない）。
+                      席が立たない便は別の欄: check だけ＝起こしたが check が毎回「用無し」で席が 1 度も立っていない／
+                      未発火＝時計がまだ 1 度も起こしていない。実行の列は窓の便名を label の括弧の頭の英語名と routine の name でも引く。
                       時計 列＝その便をどちらの時計が起こすか。agent 列＝その便を走らせる席（routine には agent が無いので「—」）。
                       「手順書」列＝その便を回す席の本文（06エージェント資産/_便/ のエイリアス。畳む途中の棚は docs/定期便-手順/ も見る）。
                       「実行」列＝その便が帳簿（記録 MCP kiroku の run_start／run_end）に走った記録を残したか。
                       ⚠️ Python から口は撃てる（scripts/mcplib.py・2026-09-20 実測）が、**帳簿に便ごとの実行を読む口が無い**。
                       全便が同じ席名 `scheduler` で書く決まりなので `run_last` は席単位でしか引けない（⇒ 便ごとに分けられない）。
                       ⇒ 便が run_end と同時に置く 11一時ファイル/便の実行-YYYY-MM.tsv を読む（--runs で差し替え可）。
-                      正本は帳簿・この tsv は 7 日で消える窓。tsv が無ければ全便「取得不能（tsv なし）」と出す（0 件とは書かない）
+                      正本は帳簿・この tsv は窓（中の OS と本陣の 2 か所を読む）。tsv が無ければ全便「取得不能（tsv なし）」と出す（0 件とは書かない）
   6. エージェント（席） 06エージェント資産/_索引-写し.md の箱ごとの体数 ＋ --monsters <json>（list_monsters の結果）
   7. 完了（30 日）    09アーカイブ/案件/*.md の墓標 ＋ フォルダのまま閉じた箱（status.md の state が 完了・吸収済・閉じた日は updated）
   8. 棚の差分         数だけ（08プロジェクト・00朝廷・一段目のみ。深い走査はしない）
@@ -75,7 +82,12 @@ GRAVES = os.path.join(HONJIN, "09アーカイブ", "案件")
 # 正本は 06エージェント資産/_便/（{HHMM}-{便}.md のエイリアス）へ移った。docs/定期便-手順/ は畳む途中の棚のためだけに残す
 PROC_DIRS = [os.path.join(ROOT, "06エージェント資産", "_便"),
              os.path.join(HONJIN, "docs", "定期便-手順")]
-RUNS = os.path.join(ROOT, "11一時ファイル")   # 便が run_end と同時に置く tsv（7 日で消える窓。正本は帳簿）
+RUNS = os.path.join(ROOT, "11一時ファイル")   # 便が run_end と同時に置く tsv（窓。正本は帳簿）
+# 本陣で起きた席は本陣の 11一時ファイル/ に書くことがある。両方を読む（同じ所なら 1 つ）
+RUNS_DIRS = list(dict.fromkeys([RUNS, os.path.join(HONJIN, "11一時ファイル")]))
+# 時計の結果の語のうち「落ちた」だけ。done_self／done／done_idle／ok＝走り終えた、spawned＝起こした、
+# skipped_policy＝見張りが用無しと答えた周、skipped_running＝前の回がまだ走っている周＝どれも正常
+FAIL_RESULTS = ("error", "timeout")
 PROMPTS = os.path.join(ROOT, "06エージェント資産")
 PROMPT_INDEX = os.path.join(PROMPTS, "_索引-写し.md")   # ⛔ 人が書く _索引.md ではない
 SKILL_INDEX = os.path.join(PROMPTS, "06二軍エージェント", "_索引-スキル.md")
@@ -386,11 +398,33 @@ CLOCKS = (("routine", lambda: ROUTINE_DIR, "routines.json", "routines", "runs.lo
           ("scheduler", lambda: SCHED_DIR, "schedules.json", "schedules", "fires.log", "schedule_id"))
 
 
+def short_ts(ts):
+    """ISO → "MM-DD HH:MM"（この機体の時刻）。読めない物も頭の YYYY-MM-DDTHH:MM だけは拾う。
+    ⛔ 読めない文字列をそのまま返さない（"2026-…" は "11-…" より大きいと並び、古い行が最新に見える）"""
+    ts = (ts or "").strip()
+    try:
+        return dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%m-%d %H:%M")
+    except ValueError:
+        m = re.match(r"\d{4}-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})", ts)
+        if m:
+            return f"{m[1]}-{m[2]} {m[3]}:{m[4]}"
+        m = re.match(r"\d{4}-(\d{2})-(\d{2})", ts)
+        return f"{m[1]}-{m[2]} 00:00" if m else ts
+
+
 def read_fires(fires, key):
-    """最終発火の log → {id: 最後の行}。無ければ空。"""
-    last = {}
-    if fires and os.path.exists(fires):
-        with open(fires, encoding="utf-8") as f:
+    """最終発火の log → {id: 最後の行}。無ければ空。
+    月替わりで畳まれた控え（fires-YYYY-MM.log など・UTC の月で切れる）も読む＝月 1 の便の発火を取りこぼさない。
+    各行に `_act`（skipped_* でない最後の行＝席が実際に起きた／落ちた最後の回）を付ける。"""
+    last, act = {}, {}
+    if not fires:
+        return last
+    stem, ext = os.path.splitext(fires)
+    paths = sorted(glob.glob(f"{stem}-20??-??{ext}")) + [fires]
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 try:
                     r = json.loads(line)
@@ -398,7 +432,11 @@ def read_fires(fires, key):
                     continue
                 if isinstance(r, dict):
                     last[r.get(key)] = r
-    return last
+                    # 見張り（check）自体が落ちた行は席の回ではない＝後で check が通れば治っている
+                    if not (str(r.get("result") or "").startswith("skipped")
+                            or str(r.get("detail") or "").startswith("check")):
+                        act[r.get(key)] = r
+    return {k: dict(v, _act=act.get(k, {})) for k, v in last.items()}
 
 
 def load_schedules(path):
@@ -438,7 +476,8 @@ def read_runs(runs_path):
     列: 開始ISO<TAB>便名<TAB>結果<TAB>実行id<TAB>中身（書式は .claude/rules/メモリシステム.md「記録は、どこに書くか」）。
     ⚠️ 正本は帳簿（記録 MCP kiroku）。帳簿に便ごとの実行を読む口が無いので、ここはその窓を読むだけ。
     """
-    paths = ([runs_path] if runs_path else sorted(glob.glob(os.path.join(RUNS, "便の実行-20??-??.tsv"))))
+    paths = ([runs_path] if runs_path else
+             [p for d in RUNS_DIRS for p in sorted(glob.glob(os.path.join(d, "便の実行-20??-??.tsv")))])
     last, found = {}, False
     for p in paths:
         if not os.path.exists(p):
@@ -449,15 +488,35 @@ def read_runs(runs_path):
                 c = line.rstrip("\n").split("\t")
                 if len(c) < 3 or not c[0].strip():
                     continue
-                ts, name, kekka = c[0].strip(), c[1].strip(), c[2].strip()
-                try:
-                    ts = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%m-%d %H:%M")
-                except ValueError:
-                    pass
+                ts, name, kekka = short_ts(c[0]), c[1].strip(), c[2].strip()
                 prev = last.get(name)
                 if prev is None or ts >= prev[0]:
                     last[name] = (ts, kekka)
     return {k: (v[0] + (" " + v[1] if v[1] else "")).strip() for k, v in last.items()}, found
+
+
+# 便の別名に使う英語の語（小文字で始まる 4 字以上・sweep-watch・site-seo-daily など）
+ALIAS_RE = re.compile(r"(?<![A-Za-z0-9_.-])[a-z][A-Za-z0-9_.-]{3,}")
+PAREN_RE = re.compile(r"[（(]([^）)]*)[）)]")
+
+
+def bin_aliases(schedules):
+    """→ {便の id: (別名, …)}。別名＝label の括弧の中の英語の語と routine の name（会員の窓はこちらで書くことがある）。
+    2 本以上の便に出る語（機体の名前 mac-studio など）は便を見分けられないので落とす"""
+    raw = {}
+    for s in schedules:
+        # 括弧の頭に置いた英語の名前だけ（「（sweep-watch→候補置き場へ…）」「（bluelamp-chrome）」）。
+        # 括弧の途中の英語（「合図 support で起きる」「Playwright 読み」）は便の名前ではないので拾わない
+        words = {m.group(0).strip(".-_") for part in PAREN_RE.findall(str(s.get("label") or ""))
+                 for m in [ALIAS_RE.match(part.strip())] if m}
+        if s.get("name"):
+            words.add(str(s["name"]).strip())
+        raw[s.get("id")] = {w for w in words if len(w) >= 4}
+    seen = {}
+    for ws in raw.values():
+        for w in ws:
+            seen[w] = seen.get(w, 0) + 1
+    return {k: tuple(sorted(w for w in ws if seen[w] == 1)) for k, ws in raw.items()}
 
 
 def read_routine(sched_path, runs_path=None):
@@ -476,35 +535,51 @@ def read_routine(sched_path, runs_path=None):
         hits = [n for n in procs if n and n in label]
         return max(hits, key=len) if hits else None
 
-    def run_of(name, label):
+    def run_of(name, label, agent, sid, aliases=()):
+        """窓の便名で引く。席は手順書の名前・予約の名前・予約 id 入りの名前（「経理の日次の便（予約 f5741ddd）」）など
+        まちまちに書くので、①手順書の名前か予約の名前と同じ ②便名に予約 id が入っている ③便名（4 字以上）が予約の名前に
+        入っている ④便名の英語の語が便の別名（label の括弧の中の英語名・routine の name）と同じ、の順に引き、
+        当たった中で一番新しい行を返す。agent（席の名前）では引かない＝同じ席が複数の便を持つため"""
         if not runs_found:
             return "取得不能（tsv なし）"
-        for k in (name, label):
-            if k and k in runs:
-                return runs[k]
-        return "なし"
+        al = set(aliases)
+        hits = [v for k, v in runs.items()
+                if (k and k in (name, label)) or (sid and len(sid) >= 8 and sid in k)
+                or (len(k) >= 4 and k in label) or (al and (k in al or al & set(ALIAS_RE.findall(k))))]
+        return max(hits) if hits else "なし"
 
     schedules, src = load_schedules(sched_path)
     rows = []
     if schedules is not None:
+        aliases = bin_aliases(schedules)
         for s in schedules:
-            label = s.get("label") or s.get("id") or ""
+            label = s.get("label") or s.get("name") or s.get("id") or ""
             fire = s["_fire"]
-            ts = fire.get("ts", "")
-            try:
-                ts = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%m-%d %H:%M")
-            except ValueError:
-                pass
+            ts = short_ts(fire.get("ts", "")) if fire.get("ts") else ""
             result = fire.get("result", "")
+            act = fire.get("_act") or {}
             name = proc_for(label)
+            ran = run_of(name, label, str(s.get("agent") or "").lstrip("@"), s.get("id") or "",
+                         aliases.get(s.get("id"), ()))
+            # 席が立たない便は「実行未記録」と別に数える（窓に書く物が無いのが正常）:
+            # 未発火＝時計が 1 度も起こしていない／check だけ＝起こしたが check が毎回「用無し」で席が 1 度も立っていない
+            idle = "" if s.get("paused") or act else ("未発火" if not fire else ("check だけ" if s.get("check") else ""))
+            if idle and ran == "なし":
+                ran = f"なし（{idle}）"
             rows.append({"時刻": cron_time(s.get("cron")), "便": cell(label),
                          "agent": cell(s.get("agent")) or "—", "時計": s["_clock"],
                          "状態": "**止**" if s.get("paused") else "稼働",
                          "最終発火": (ts + (" " + result if result else "")).strip() or "—",
                          "手順書": "あり" if name else "なし",
-                         "実行": run_of(name, label),
+                         "実行": ran,
                          "paused": bool(s.get("paused")),
-                         "fail": result not in ("", "spawned", "ok")})
+                         # 落ちた＝席が起きた最後の回が error／timeout（用無しの周で上書きされた落ちも拾う）
+                         "fail": result in FAIL_RESULTS or act.get("result") in FAIL_RESULTS,
+                         # 実行未記録の分母: scheduler の便で、席が 1 回でも起きた物だけ。routine は窓に書く仕組みが無いので
+                         # 数えない（routine の正本は runs.log の ok／error）。1 度も起きていない便は書く物が無い
+                         "未記録": (s["_clock"] == "scheduler" and not s.get("paused") and bool(act)
+                                    and ran == "なし"),
+                         "idle": idle})
     rows.sort(key=lambda r: (r["paused"], r["時刻"]))
     return rows, src, runs_found
 
@@ -605,10 +680,7 @@ def read_seats(schedules, monsters_path):
             if hit:
                 break
         ts = (sc.get("_fire") or {}).get("ts", "")
-        try:
-            ts = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%m-%d %H:%M")
-        except ValueError:
-            pass
+        ts = short_ts(ts) if ts else ""
         if hit:
             seat_box.setdefault(hit, {"seats": set(), "fire": ""})
             seat_box[hit]["seats"].add("@" + agent)
@@ -851,8 +923,13 @@ def build(args):
     n = {s: sum(1 for r in projects if r["state"] == s) for s in list(STATES) + ["語彙外", "状態なし"]}
     longest = max([r["age"] for r in items] or [0])
     fail = sum(1 for r in routine if r["fail"])
-    norun = (sum(1 for r in routine if not r["paused"] and r["実行"] == "なし")
+    # 窓の最後の行が 失敗＝席は走り切ったが自分で 失敗 と閉じた（時計の fail とは別の数）
+    runfail = sum(1 for r in routine if not r["paused"] and str(r["実行"]).endswith("失敗"))
+    norun = (sum(1 for r in routine if r["未記録"])
              if runs_found else "取得不能（窓の tsv なし）")
+    # 席が立たない便（実行未記録には数えない・別の欄）
+    chk_only = sum(1 for r in routine if r["idle"] == "check だけ")
+    nofire = sum(1 for r in routine if r["idle"] == "未発火")
     seat_total = sum(r["体数"] for r in seats if r["箱"] != "スキル（未登録）")
     seat_run = ("未取得" if any(r["稼働中"] == "（未取得）" for r in seats)
                 else sum(int(r["稼働中"]) for r in seats if str(r["稼働中"]).isdigit()))
@@ -868,7 +945,8 @@ def build(args):
          + f"）／墓標が読めない {len(unreadable)}"
          f"／裁定待ち {len(items)} 件（最長 {longest} 日・差し戻し {len(sent_back)}）"
          f"／主君の手 {len(levers)}／待ち受け {len(untils)}（🔴 {late}）／再開の合図 {len(resumes)}"
-         f"／便 {len(routine)} 本（fail {fail}・実行未記録 {norun}）"
+         f"／便 {len(routine)} 本（fail {fail}・窓の最後が失敗 {runfail}・実行未記録 {norun}＝席が起きた scheduler の便で窓に無い物"
+         f"・席が立たない便 check だけ {chk_only}・未発火 {nofire}）"
          f"／席 {seat_total} 体（稼働 {seat_run}）／完了 {len(done)}（{DONE_DAYS} 日）",
          "",
          "## 1. プロジェクト（08プロジェクト/ の箱・state 別）", ""]
@@ -934,10 +1012,13 @@ def build(args):
           "別の機体で回している便はここに出ない"]
     L += ["- **最終発火**＝時計が起こしたか（routine は `~/.claude/routine/runs.log`・scheduler は `~/.claude/scheduler/fires.log`）。**実行**＝その便が走り終わったと"
           "帳簿（記録 MCP `kiroku` の `run_start`／`run_end`）に残したか。**起こした ≠ 走り切った**ので 2 列ある",
-          "- 実行の出所は `11一時ファイル/便の実行-YYYY-MM.tsv`（便が `run_end` と同時に置く窓・7 日で消える）。"
-          "**正本は帳簿**＝手が要った率は `stocktake` で数える。書き方は `.claude/rules/メモリシステム.md`「記録は、どこに書くか」"]
+          "- 実行の出所は `11一時ファイル/便の実行-YYYY-MM.tsv`（便が `run_end` と同時に置く窓・中の OS と本陣の 2 か所を読む）。"
+          "**正本は帳簿**＝手が要った率は `stocktake` で数える。書き方は `.claude/rules/メモリシステム.md`「記録は、どこに書くか」",
+          "- 実行の列は窓の便名を、手順書の名前・予約の名前・予約 id・label の括弧の中の英語名・routine の name で引く。"
+          "**なし（check だけ）**＝check が毎回「用無し」で席が 1 度も立っていない便、**なし（未発火）**＝時計がまだ 1 度も起こしていない便"
+          "＝どちらも窓に書く物が無いのが正常なので、実行未記録には数えない"]
     if not runs_found:
-        L += ["- ⚠️ **取得不能**: 窓の tsv が 1 枚も無い（まだどの便も置いていないか、7 日で消えた）。"
+        L += ["- ⚠️ **取得不能**: 窓の tsv が 1 枚も無い（まだどの便も置いていないか、消された）。"
               "⛔ これは「走っていない」ではない。帳簿を `stocktake` で引く"]
 
     L += ["", "## 6. エージェント（席）", ""]
@@ -964,7 +1045,7 @@ def build(args):
     summary = (f"箱 {len(projects)}（状態なし {n['状態なし']}・語彙外 {n['語彙外']}・凍結 {len(frozen)}"
                f"・閉じた箱 {len(closed_boxes)}・墓標が読めない {len(unreadable)}）"
                f" / 裁定 {len(items)} / 差し戻し {len(sent_back)} / 主君の手 {len(levers)} / 待ち受け {len(untils)}（🔴 {late}）"
-               f" / 便 {len(routine)}（fail {fail}・実行未記録 {norun}・src {sched_src}）"
+               f" / 便 {len(routine)}（fail {fail}・窓の失敗 {runfail}・実行未記録 {norun}・check だけ {chk_only}・未発火 {nofire}・src {sched_src}）"
                f" / 席 {seat_total}（稼働 {seat_run}・スキル {skills}）"
                f" / 完了 {len(done)}")
     return L, summary
