@@ -5,7 +5,7 @@
 #   道具（scripts/kit/scripts/ に固定した写し＝kiroku.py ほか 4 本・make-kit.sh・git-hooks/・kit-ingest/・sms/）・.gitignore・docs/SCOPE_PROGRESS.md の芯 1 枚。**中身は 1 行も入れない**（規矩 X-7）。
 #   🔑 配る版は棚から切り離して固定してある（2026-10-13 主君「弊社は弊社なりの進化を遂げているんで、配布用のキットと常に同期させる必要はない」）。
 #      棚の scripts/ をいくら直しても配る版には流れない。配る版を新しくするのは、主君が決めて scripts/kit/ を直したときだけ。
-#   docs/SCOPE_PROGRESS.md は「8 節の見出しと『まだ作られていません』の 1 行」だけの芯を入れる（⛔ 空の紙にしない＝「全体像」と名乗って何も言わない紙は嘘になる）。
+#   docs/SCOPE_PROGRESS.md は「9 節の見出しと『まだ作られていません』の 1 行」だけの芯を入れる（⛔ 空の紙にしない＝「全体像」と名乗って何も言わない紙は嘘になる）。
 #   中身は生成器が最初に撃たれたとき（`python3 scripts/build_scope_progress.py`）にまるごと書き直す。
 #   ⛔ docs/定期便-手順/ は配らない（2026-09-20 主君裁定「便という種類をやめて席に一本化する」で箱ごと畳んだ。
 #      中身＝全体像の作り方は AOS設置 §5 と 孔明の起動の手へ、走った記録の書き方は メモリシステム「記録は、どこに書くか」へ継いだ）。
@@ -32,7 +32,7 @@ GATE="$ROOT/scripts/check-distributable.sh"
 
 # ============================== 配る物（固定リスト。`scripts/*` を舐めない）==============================
 # 当社固有の生成器（course/・register/・経理/・mirror_*.py・build_distribution_ledgers.py ほか）は入れない。足すならここに 1 行
-KIT_TOOLS="kiroku.py build_scope_progress.py build_agent_aliases.py check-distributable.sh make-kit.sh honjin.py"
+KIT_TOOLS="kiroku.py build_scope_progress.py build_agent_aliases.py check-distributable.sh make-kit.sh honjin.py test_build_scope_progress_kigen.py"
 KIT_HOOKS="pre-commit-secret.sh pre-commit-pii.sh pre-commit-deadpath.sh pre-commit-box.sh"
 # 資産の引き上げ席が呼ぶ道具（下の 2 行で合わせて 11 本＝kit-ingest 10 ＋ sms 1。無いとその席は配っても最初の門で止まる）
 KIT_INGEST="verify_complete.py verify_pages.py fetch_one.py transcribe_loop.py drive_put.py build_ledger.py manifest_add.py inventory_youtube.py verify_cards.py gate.py"
@@ -263,6 +263,9 @@ selftest() {
   mkdir -p "$t/sched"
   ( cd "$kit" && SCHEDULER_DIR="$t/sched" ROUTINE_DIR="$t/sched" python3 scripts/build_scope_progress.py 2> "$t/gen.err" ) || { cat "$t/gen.err"; die "selftest: build_scope_progress.py が落ちた"; }
   [ -s "$kit/docs/SCOPE_PROGRESS.md" ] || die "selftest: docs/SCOPE_PROGRESS.md が書かれていない"
+  # ⏳ 全体像 §9 期限（金庫の鍵）: 検体 2 件で近い順・🔴／一覧なしは「取得不能」／15 日先に印なし／期限の無い項目は出ない／§8 の後ろ（陰性対照つき）
+  python3 "$kit/scripts/test_build_scope_progress_kigen.py" > "$t/kigen.log" 2>&1 || { cat "$t/kigen.log"; die "selftest: 期限の節の試し（test_build_scope_progress_kigen.py）が赤"; }
+  echo "🔬 selftest: ✅ §9 期限は検体で近い順・🔴 を付け、一覧なしは「取得不能」と出す"
   ( cd "$kit" && python3 scripts/kiroku.py box --slug 2000-01-01-検体 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: kiroku.py box が落ちた"
   ( cd "$kit" && python3 scripts/kiroku.py --check 08プロジェクト > /dev/null ) || die "selftest: kiroku.py --check が正しい箱で落ちる"
   step "4-1 routine だけの機体（~/.claude/scheduler/ が無く ~/.claude/routine/ だけ）で生成器 2 本が走る（負制御こみ）"

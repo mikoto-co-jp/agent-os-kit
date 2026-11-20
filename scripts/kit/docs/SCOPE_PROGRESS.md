@@ -3,7 +3,7 @@
 
 **この紙は機械が書く。手で直さない。**中身は `python3 scripts/build_scope_progress.py` が、元（`08プロジェクト/*/status.md`・`00朝廷/*.md`・時計（routine の控え）・`09アーカイブ/案件/` の墓標）から毎回まるごと書き直す。⇒ ここに手で足した行は次の生成で消える。直したい物が在れば**元を直して撃ち直す**。
 
-節は 8 つ・順は固定・空の節は「（なし）」1 行。型の正本は `scripts/build_scope_progress.py` の docstring。
+節は 9 つ・順は固定・空の節は「（なし）」1 行。型の正本は `scripts/build_scope_progress.py` の docstring。
 
 ## 1. プロジェクト（08プロジェクト/ の箱・state 別）
 
@@ -36,3 +36,7 @@
 ## 8. 棚の差分（§1 の手 1）
 
 まだ作られていません。`python3 scripts/build_scope_progress.py` で作られます。
+
+## 9. 期限（金庫の鍵）
+
+まだ作られていません。`python3 scripts/build_scope_progress.py --vault <金庫の一覧>` で作られます（一覧を渡さないと「取得不能」と出ます）。

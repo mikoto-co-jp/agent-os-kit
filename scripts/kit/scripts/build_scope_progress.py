@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""docs/SCOPE_PROGRESS.md の生成器（8 節固定）。読むのは元だけ、書くのは 1 枚。手で編集しない。
+"""docs/SCOPE_PROGRESS.md の生成器（9 節固定）。読むのは元だけ、書くのは 1 枚。手で編集しない。
 
 型の正本はこの docstring（旧 影分身/分身.md §3-1 は 2026-09-15 に退役）。節の順は固定。空の節は「（なし）」1 行。
 語彙表（箱の state・鍵）は scripts/kiroku.py から import する（主君裁定 2026-09-18・帳簿 id=440）。
@@ -27,6 +27,11 @@
   6. エージェント（席） 06エージェント資産/_索引-写し.md の箱ごとの体数 ＋ --monsters <json>（list_monsters の結果）
   7. 完了（30 日）    09アーカイブ/案件/*.md の墓標 ＋ フォルダのまま閉じた箱（status.md の state が 完了・吸収済・閉じた日は updated）
   8. 棚の差分         数だけ（08プロジェクト・00朝廷・一段目のみ。深い走査はしない）
+  9. 期限（金庫の鍵） 金庫（password-manager）の各項目の説明に書いた「期限 YYYY-MM-DD」を近い順に並べ、残り 14 日以内か切れた物に 🔴。
+                      生成器は MCP を撃てない＝席が `list_secrets` の出力をファイルに保存して `--vault <ファイル>` で渡す。出すのは項目名と期限だけ
+                      （説明の他の文・値は出さない）。期限の正本は金庫の説明のまま（⛔ 写しの台帳を作らない）。
+                      ⛔ 渡されないときは「取得不能」と出す（「（なし）」や 0 件と書かない）。期限の書かれていない項目は出さない。
+                      §1〜§8 の番号を動かさないために末尾に足した（他の紙が §2・§5 を番号で指している）
 
 --check: 自己一致。①生成器の語彙が kiroku.STATES と同じ ②08プロジェクト/ の全箱が kiroku --check を通る
         ③箱から作る節（1〜4）を今の docs/SCOPE_PROGRESS.md と比べて一致（生成し直しが要るなら exit 1）
@@ -771,6 +776,64 @@ def table(header, rows):
     return [header, sep] + rows
 
 
+# ⏳ 金庫の鍵の期限（§9）。入力は password-manager の list_secrets の出力（文字のまま）＝1 項目 1 行
+#    `• <名前> (<username>) 🔗<url> — <説明> [by <作った人>, <日付>]`。名前は最初の区切りまで、期限は行のどこかの「期限 YYYY-MM-DD」。
+VAULT_HEAD = "保存済みシークレット"
+VAULT_EMPTY = "保存済みのシークレットはありません"
+KIGEN_RE = re.compile(r"期限\s*[:：]?\s*(\d{4}-\d{1,2}-\d{1,2})")
+KIGEN_WARN_DAYS = 14
+
+
+def _vault_name(line):
+    s = line[1:].strip()
+    cut = [i for i in (s.find(" ("), s.find(" 🔗"), s.find(" — "), s.find(" [by ")) if i > 0]
+    return s[:min(cut)] if cut else s
+
+
+def read_vault(path, today=None):
+    """→ (rows|None, 理由・件数の文)。rows=[{名前, 期限, 残り, 印}] 期限の近い順。None は取得不能（理由つき）。"""
+    if not path:
+        return None, "金庫の一覧が渡されていない（`list_secrets` の出力をファイルに保存して `--vault <ファイル>` で渡す）"
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        return None, f"金庫の一覧を読めない（{type(e).__name__}: {e.strerror or e}）"
+    items = [ln for ln in text.splitlines() if ln.lstrip().startswith("•")]
+    if VAULT_HEAD not in text and VAULT_EMPTY not in text:
+        return None, "渡されたファイルが `list_secrets` の出力の形でない（見出し「📦 保存済みシークレット」が無い）"
+    today = today or dt.date.today()
+    rows = []
+    for ln in items:
+        m = KIGEN_RE.search(ln)
+        if not m:
+            continue
+        name = _vault_name(ln.strip())
+        try:
+            d = dt.date.fromisoformat("-".join(f"{int(x):02d}" for x in m.group(1).split("-")))
+        except ValueError:
+            rows.append({"名前": name, "期限": m.group(1), "残り": "日付が読めない", "印": "🔴", "_k": dt.date.min}); continue
+        left = (d - today).days
+        rest = f"あと {left} 日" if left > 0 else ("今日まで" if left == 0 else f"{-left} 日前に切れた")
+        rows.append({"名前": name, "期限": d.isoformat(), "残り": rest, "印": "🔴" if left <= KIGEN_WARN_DAYS else "", "_k": d})
+    rows.sort(key=lambda r: r["_k"])
+    return rows, f"金庫 {len(items)} 件のうち期限の書かれた項目 {len(rows)} 件"
+
+
+def vault_section(vault_path=None, today=None):
+    """§9 の行（見出しから）。一覧なしは「取得不能」1 行（⛔ 0 件や「（なし）」と書かない）。"""
+    rows, why = read_vault(vault_path, today)
+    L = ["", "## 9. 期限（金庫の鍵）", "",
+         f"> 金庫の各項目の説明に `期限 YYYY-MM-DD` と書いた物だけを近い順に出す。🔴 は残り {KIGEN_WARN_DAYS} 日以内か切れた物。"
+         "期限の正本は金庫の説明（⛔ 写しを作らない）。出すのは項目名と期限だけ。", ""]
+    if rows is None:
+        return L + [f"取得不能（{why}）"]
+    if not rows:
+        return L + [f"期限の書かれた項目は無い（{why}）"]
+    return L + [f"（{why}）", "", "| 印 | 項目 | 期限 | 残り |", "|---|---|---|---|"] + \
+        [f"| {r['印']} | {cell(r['名前'], 60)} | {r['期限']} | {r['残り']} |" for r in rows]
+
+
 def build(args):
     """→ (lines, stderr 用の数字)"""
     projects, no_status = read_projects()
@@ -896,6 +959,7 @@ def build(args):
           f"／11一時ファイル {'あり' if shelf['tmp'] else '**なし**'}"]
     if shelf["big_list"]:
         L += ["", "- 実体: " + " / ".join(shelf["big_list"])]
+    L += vault_section(getattr(args, "vault", None))
     L.append("")
     summary = (f"箱 {len(projects)}（状態なし {n['状態なし']}・語彙外 {n['語彙外']}・凍結 {len(frozen)}"
                f"・閉じた箱 {len(closed_boxes)}・墓標が読めない {len(unreadable)}）"
@@ -948,6 +1012,7 @@ def main():
     ap.add_argument("--schedules", help="時計の控えの代わりに読む 1 本（routine の routines.json か scheduler の schedules.json）")
     ap.add_argument("--monsters", help="monster の一覧 JSON（list_monsters の結果）。無ければ「（未取得）」")
     ap.add_argument("--runs", help="便の実行の窓 tsv（既定: 11一時ファイル/便の実行-YYYY-MM.tsv を全部）")
+    ap.add_argument("--vault", help="password-manager の list_secrets の出力を保存したファイル（任意・無ければ §9 期限は「取得不能」）")
     ap.add_argument("--out", default=OUT_DEFAULT)
     ap.add_argument("--check", action="store_true", help="自己一致（語彙・全箱・§1〜§4 の一致）。exit 0/1・書かない")
     args = ap.parse_args()
