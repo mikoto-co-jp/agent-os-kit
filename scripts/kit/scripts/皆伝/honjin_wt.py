@@ -293,7 +293,7 @@ def _commit_from_index(top, msg, paths, label):
 
 def _commit(top, msg, paths, label):
     # 🔑 git mv（フォルダを動かす）を新旧の両方の道で渡せる:
-    #    在る道は add、消えた道は index から外すだけ（git mv 済みなら何もしない）。⛔ -A は撃たない（規矩 X-1）
+    #    在る道は add、消えた道は index から外すだけ（git mv 済みなら何もしない）。⛔ -A は撃たない（道を 1 本ずつ書く・まとめて載せない）
     # 🔑 凍結の箱（09アーカイブ/案件/<slug>/）は open で外した道＝ `git mv --sparse` で動かした先は add も rm も
     #    `--sparse` が無いと「sparse-checkout の外」で落ちる（手本の棚の陰性対照で確かめた）。
     #    ⇒ 案件/ の下の道にだけ `--sparse` を渡す（他の道は今までどおり＝外した道へ黙って書かない）

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """docs/SCOPE_PROGRESS.md の生成器（9 節固定）。読むのは元だけ、書くのは 1 枚。手で編集しない。
 
-型の正本はこの docstring（旧 影分身/分身.md §3-1 は 2026-09-15 に退役）。節の順は固定。空の節は「（なし）」1 行。
+型の正本はこの docstring（旧 影分身/分身.md の型の節は 2026-09-15 に退役）。節の順は固定。空の節は「（なし）」1 行。
 語彙表（箱の state・鍵）は scripts/kiroku.py から import する（主君裁定 2026-09-18・帳簿 id=440）。
   （2026-10-02 主君裁定・帳簿 id=3117: 箱の書き方を開発の箱と同じ 4 語の state と `手番: 誰が｜何を｜🔬実測` の 1 欄に揃えた。
-   ask／lever／until は退役。§2〜§4 はどれも 手番 の『誰が』1 本から仕分ける＝誰のボールかを 2 か所で持たない）
+   ask／lever／until は退役。裁定表・主君の手・待ち受けの 3 節はどれも 手番 の『誰が』1 本から仕分ける＝誰のボールかを 2 か所で持たない）
   1. プロジェクト     08プロジェクト/*/status.md を state 別（起案／実行中／完了）の表＝箱｜owner｜手番（誰が）｜next｜updated。
                       status.md の無い箱・語彙外の state は赤。09アーカイブ/案件/ のフォルダは state で 閉じた箱（数）／凍結（末尾に一覧）／墓標が読めない（赤）に分ける
   2. 裁定表           00朝廷/*.md の全数（手番 の『誰が』＝主君 の紙。孔明 の紙は「孔明が裁く（うけつけ）」に別に出す・手番なしは差し戻し）
@@ -38,15 +38,15 @@
                       生成器は MCP を撃てない＝席が `list_secrets` の出力をファイルに保存して `--vault <ファイル>` で渡す。出すのは項目名と期限だけ
                       （説明の他の文・値は出さない）。期限の正本は金庫の説明のまま（⛔ 写しの台帳を作らない）。
                       ⛔ 渡されないときは「取得不能」と出す（「（なし）」や 0 件と書かない）。期限の書かれていない項目は出さない。
-                      §1〜§8 の番号を動かさないために末尾に足した（他の紙が §2・§5 を番号で指している）
+                      1〜8 の節の番号を動かさないために末尾に足した（他の紙が裁定表と Routine の節を番号で指している）
 
 --check: 自己一致。①生成器の語彙が kiroku.STATES と同じ ②08プロジェクト/ の全箱が kiroku --check を通る
         ③箱から作る節（1〜4）を今の docs/SCOPE_PROGRESS.md と比べて一致（生成し直しが要るなら exit 1）
 
 退役した生成器をここへ畳んだ（2026-09-14）:
-  build_council.py  → §2（書式判定 問い｜選択肢｜推奨｜決めないと・差し戻し）。docs/裁定会.md は廃止
-  build_schedules.py → §5（scheduler を直読み）。docs/定期便.md は廃止
-「条件待ち」の節は 2026-09-18 に §4 待ち受け（until）へ替えた。「廃止候補」の節は 2026-09-14 に型から外した。
+  build_council.py  → 裁定表の節（書式判定 問い｜選択肢｜推奨｜決めないと・差し戻し）。docs/裁定会.md は廃止
+  build_schedules.py → Routine の節（scheduler を直読み）。docs/定期便.md は廃止
+「条件待ち」の節は 2026-09-18 に待ち受けの節（until）へ替えた。「廃止候補」の節は 2026-09-14 に型から外した。
 
 ROOT は環境変数 MIKOTO_OS_ROOT か、このファイルの 2 つ上（scripts/ の親）。
 """
@@ -75,10 +75,10 @@ PROJ = os.path.join(HONJIN, "08プロジェクト")
 # 受付。古い形の棚（更新の前）は 00廷議 のまま在ることがある＝在る方を読む（両方無ければ 00朝廷）
 APPROVE = next((p for p in (os.path.join(HONJIN, "00朝廷"), os.path.join(HONJIN, "00廷議")) if os.path.isdir(p)),
                os.path.join(HONJIN, "00朝廷"))
-# 定点の窓口＝終わりの無い箱。08プロジェクト/ には置かないが、status.md の ask は §2 裁定表に載せる（書式は箱と同じ）
+# 定点の窓口＝終わりの無い箱。08プロジェクト/ には置かないが、status.md の ask は裁定表の節に載せる（書式は箱と同じ）
 DESKS = [os.path.join(ROOT, "04オペレーション資産", "customer", "サポート", "status.md")]
 GRAVES = os.path.join(HONJIN, "09アーカイブ", "案件")
-# その便を回す席の本文が在るか（§5 の「手順書」列）。2026-09-20 に「便という種類をやめて席に一本化する」で
+# その便を回す席の本文が在るか（Routine の節の「手順書」列）。2026-09-20 に「便という種類をやめて席に一本化する」で
 # 正本は 06エージェント資産/_便/（{HHMM}-{便}.md のエイリアス）へ移った。docs/定期便-手順/ は畳む途中の棚のためだけに残す
 PROC_DIRS = [os.path.join(ROOT, "06エージェント資産", "_便"),
              os.path.join(HONJIN, "docs", "定期便-手順")]
@@ -96,13 +96,13 @@ BIG_BYTES = 5 * 1024 * 1024
 MEDIA = (".mp4", ".mov", ".pdf", ".png", ".jpg", ".jpeg", ".zip")
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
 
-# 箱の state は kiroku.STATES（4 語）。生成器はこの並びで §1 の表を出す。語彙外・status.md 無しは赤
+# 箱の state は kiroku.STATES（4 語）。生成器はこの並びでプロジェクトの節の表を出す。語彙外・status.md 無しは赤
 STATES = kiroku.STATES
-STATE_SECTIONS = ("起案", "実行中", "完了")   # §1 に必ず出す 3 つ（吸収済 は在るときだけ）
+STATE_SECTIONS = ("起案", "実行中", "完了")   # プロジェクトの節に必ず出す 3 つ（吸収済 は在るときだけ）
 STATE_ORDER = {s: i for i, s in enumerate(STATES)}
 STATE_ORDER.update({"語彙外": 90, "状態なし": 91, "凍結": 92})
 # 09アーカイブ/案件/ の下のフォルダの箱を status.md の state で分ける（箱 n=4971・2026-11-15 会員の報告）。
-#   完了・吸収済＝閉じた箱（数だけ §1・30 日以内は §7）／起案・実行中・旧語（kiroku.STATE_LEGACY）・frontmatter の無い
+#   完了・吸収済＝閉じた箱（数だけプロジェクトの節・30 日以内は完了の節）／起案・実行中・旧語（kiroku.STATE_LEGACY）・frontmatter の無い
 #   旧書式の status.md・status.md の無い資料だけのフォルダ＝凍結（再点火は主君）／frontmatter は在るが state が空・語彙外＝赤「墓標が読めない」
 CLOSED_STATES = ("完了", "吸収済")
 FROZEN_STATES = tuple(s for s in STATES if s not in CLOSED_STATES) + tuple(kiroku.STATE_LEGACY)
@@ -221,7 +221,7 @@ def grave_box(d):
 
 
 def read_graves():
-    """→ closed（行）, frozen（名前）, unreadable（行）。1 枚の墓標（*.md）はここで数えない（§7 の read_done が読む）"""
+    """→ closed（行）, frozen（名前）, unreadable（行）。1 枚の墓標（*.md）はここで数えない（完了の節の read_done が読む）"""
     closed, frozen, unreadable = [], [], []
     for d in sorted(glob.glob(os.path.join(GRAVES, "*"))):
         if not os.path.isdir(d):
@@ -245,13 +245,13 @@ def read_material(body):
 
 
 def is_body_ask(opts):
-    """選択肢が無い（空・「（体を動かす頼み）」）＝裁定ではなく体を動かす頼み＝§3"""
+    """選択肢が無い（空・「（体を動かす頼み）」）＝裁定ではなく体を動かす頼み＝主君の手の節"""
     o = cell(opts)
     return not o or o.startswith("（体を動かす")
 
 
 def read_desks():
-    """定点の窓口（DESKS）の status.md を箱と同じ形で読む。§2 の ask にだけ使う。紙が無ければ読み飛ばす"""
+    """定点の窓口（DESKS）の status.md を箱と同じ形で読む。裁定表の節の ask にだけ使う。紙が無ければ読み飛ばす"""
     rows = []
     for sp in DESKS:
         if not os.path.exists(sp):
@@ -304,7 +304,7 @@ def read_council(projects):
         else:
             sent_back.append((seat, base, "手番なし（主君か孔明か）" if not dare else f"手番 の誰が が {dare}（00朝廷 は 主君 か 孔明）"))
 
-    # 手番=主君 の箱の材料（選択肢が在る物＝裁定。無い物は §3 主君の手）
+    # 手番=主君 の箱の材料（選択肢が在る物＝裁定。無い物は主君の手の節）
     for r in projects:
         if kiroku.dare_of(r.get("手番")) != "主君" or is_body_ask(r["material"].get("選択肢")):
             continue
@@ -841,14 +841,14 @@ def read_shelf(no_status):
 # ---------- 組み立て ----------
 
 def table(header, rows):
-    """行が無ければヘッダも出さず「（なし）」1 行（分身.md §3-1）。"""
+    """行が無ければヘッダも出さず「（なし）」1 行（型の正本＝この道具の頭の docstring）。"""
     if not rows:
         return ["（なし）"]
     sep = "|" + "---|" * (header.count("|") - 1)
     return [header, sep] + rows
 
 
-# ⏳ 金庫の鍵の期限（§9）。入力は password-manager の list_secrets の出力（文字のまま）＝1 項目 1 行
+# ⏳ 金庫の鍵の期限（全体像の期限の節）。入力は password-manager の list_secrets の出力（文字のまま）＝1 項目 1 行
 #    `• <名前> (<username>) 🔗<url> — <説明> [by <作った人>, <日付>]`。名前は最初の区切りまで、期限は行のどこかの「期限 YYYY-MM-DD」。
 VAULT_HEAD = "保存済みシークレット"
 VAULT_EMPTY = "保存済みのシークレットはありません"
@@ -893,7 +893,7 @@ def read_vault(path, today=None):
 
 
 def vault_section(vault_path=None, today=None):
-    """§9 の行（見出しから）。一覧なしは「取得不能」1 行（⛔ 0 件や「（なし）」と書かない）。"""
+    """期限の節の行（見出しから）。一覧なしは「取得不能」1 行（⛔ 0 件や「（なし）」と書かない）。"""
     rows, why = read_vault(vault_path, today)
     L = ["", "## 9. 期限（金庫の鍵）", "",
          f"> 金庫の各項目の説明に `期限 YYYY-MM-DD` と書いた物だけを近い順に出す。🔴 は残り {KIGEN_WARN_DAYS} 日以内か切れた物。"
@@ -1052,7 +1052,7 @@ def build(args):
 
 
 def box_sections(lines):
-    """箱から作る節（§1〜§4）だけを取り出す（--check の比較用。生成時刻の行は除く）。"""
+    """箱から作る節（プロジェクト〜待ち受けの 4 節）だけを取り出す（--check の比較用。生成時刻の行は除く）。"""
     out, inside = [], False
     for l in lines:
         if l.startswith("## 1. "):
@@ -1065,7 +1065,7 @@ def box_sections(lines):
 
 
 def cmd_check(args):
-    """自己一致: ①語彙 ②全箱 ③§1〜§4 が今の SCOPE_PROGRESS.md と一致"""
+    """自己一致: ①語彙 ②全箱 ③プロジェクト〜待ち受けの 4 節が今の SCOPE_PROGRESS.md と一致"""
     rc = 0
     if tuple(STATE_ORDER[s] for s in STATES) != tuple(range(len(STATES))):
         print("❌ 語彙: 生成器の STATE_ORDER が kiroku.STATES と食い違う"); rc = 1
@@ -1082,9 +1082,9 @@ def cmd_check(args):
         print(f"❌ {os.path.relpath(args.out, HONJIN)} が無い（生成が要る）"); return 1
     now = open(args.out, encoding="utf-8").read().splitlines()
     if box_sections(lines) != box_sections(now):
-        print(f"❌ 一致しない: 箱から作る節（§1〜§4）が {os.path.relpath(args.out, HONJIN)} と違う（生成し直しが要る）"); rc = 1
+        print(f"❌ 一致しない: 箱から作る節（プロジェクト〜待ち受けの 4 節）が {os.path.relpath(args.out, HONJIN)} と違う（生成し直しが要る）"); rc = 1
     else:
-        print(f"✅ 一致: 箱から作る節（§1〜§4）が {os.path.relpath(args.out, HONJIN)} と同じ")
+        print(f"✅ 一致: 箱から作る節（プロジェクト〜待ち受けの 4 節）が {os.path.relpath(args.out, HONJIN)} と同じ")
     return rc
 
 
@@ -1093,9 +1093,9 @@ def main():
     ap.add_argument("--schedules", help="時計の控えの代わりに読む 1 本（routine の routines.json か scheduler の schedules.json）")
     ap.add_argument("--monsters", help="monster の一覧 JSON（list_monsters の結果）。無ければ「（未取得）」")
     ap.add_argument("--runs", help="便の実行の窓 tsv（既定: 11一時ファイル/便の実行-YYYY-MM.tsv を全部）")
-    ap.add_argument("--vault", help="password-manager の list_secrets の出力を保存したファイル（任意・無ければ §9 期限は「取得不能」）")
+    ap.add_argument("--vault", help="password-manager の list_secrets の出力を保存したファイル（任意・無ければ期限の節は「取得不能」）")
     ap.add_argument("--out", default=OUT_DEFAULT)
-    ap.add_argument("--check", action="store_true", help="自己一致（語彙・全箱・§1〜§4 の一致）。exit 0/1・書かない")
+    ap.add_argument("--check", action="store_true", help="自己一致（語彙・全箱・プロジェクト〜待ち受けの 4 節の一致）。exit 0/1・書かない")
     args = ap.parse_args()
     if args.check:
         sys.exit(cmd_check(args))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""全体像 §5 の便の数え方の試し。依存なし: `python3 scripts/test_build_scope_progress_bin.py -v`
+"""全体像の Routine の節（便）の数え方の試し。依存なし: `python3 scripts/test_build_scope_progress_bin.py -v`
 
 仕様から書く（終わりの定義）:
   fail は時計の結果が error／timeout のときだけ（skipped_policy・skipped_running・done_self・spawned・ok は落ちではない）。

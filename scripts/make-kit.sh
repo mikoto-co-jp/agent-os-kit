@@ -2,13 +2,13 @@
 # make-kit.sh — 生きている棚から「器だけ」を切り出す 1 本（AOS設置が撃つ）。
 #
 # 🔑 何を配るか: 地図（CLAUDE.md）・規則の紙 3 枚（.claude/rules/・固有値は {名前} の穴）・空の箱（.gitkeep。README を置いた 3 箱だけ .gitkeep なし）・
-#   道具（scripts/kit/scripts/ に固定した写し＝kiroku.py ほか 4 本・make-kit.sh・git-hooks/・kit-ingest/・sms/）・.gitignore・docs/SCOPE_PROGRESS.md の芯 1 枚。**中身は 1 行も入れない**（規矩 X-7）。
+#   道具（scripts/kit/scripts/ に固定した写し＝kiroku.py ほか 4 本・make-kit.sh・git-hooks/・kit-ingest/・sms/）・.gitignore・docs/SCOPE_PROGRESS.md の芯 1 枚。**中身は 1 行も入れない**（決まり「社内の判断を配る物に写さない」）。
 #   🔑 配る版は棚から切り離して固定してある（2026-10-13 主君「弊社は弊社なりの進化を遂げているんで、配布用のキットと常に同期させる必要はない」）。
 #      棚の scripts/ をいくら直しても配る版には流れない。配る版を新しくするのは、主君が決めて scripts/kit/ を直したときだけ。
 #   docs/SCOPE_PROGRESS.md は「9 節の見出しと『まだ作られていません』の 1 行」だけの芯を入れる（⛔ 空の紙にしない＝「全体像」と名乗って何も言わない紙は嘘になる）。
 #   中身は生成器が最初に撃たれたとき（`python3 scripts/build_scope_progress.py`）にまるごと書き直す。
 #   ⛔ docs/定期便-手順/ は配らない（2026-09-20 主君裁定「便という種類をやめて席に一本化する」で箱ごと畳んだ。
-#      中身＝全体像の作り方は AOS設置 §5 と 孔明の起動の手へ、走った記録の書き方は メモリシステム「記録は、どこに書くか」へ継いだ）。
+#      中身＝全体像の作り方は セカンドブレイン設置の「終わったら」の節と 孔明の起動の手へ、走った記録の書き方は メモリシステム「記録は、どこに書くか」へ継いだ）。
 # 🔑 雛形の置き場: scripts/kit/（規則の紙・地図・道具の写し。固有値・件数・日付つきの社内事故を抜いた物）。雛形も出力に入れる（建てた棚が自分で門を撃ち、次の棚を切り出せる）。
 #   棚の紙や道具と揃っているかは照合しない（--drift は 2026-10-13 に退役。互換のため撃っても何もせず exit 0）。
 #
@@ -17,7 +17,7 @@
 #   bash scripts/make-kit.sh --fill <棚> 名前=… 呼ばれ方=… 事業名=… 棚の名前=… 棚の置き場=… "git remote=…"
 #                                                          雛形の {名前} を埋める（冪等。無い穴は何もしない。埋めない穴は残る）
 #                                                          ⛔ 埋めるのは「その人の棚の紙」だけ。**どの深さの** scripts/・.git/ にも触れない（道具自身と scripts/kit/ の雛形の写し）
-#                                                             （触れると次の切り出しと --selftest の門が固有値で落ちる＝2026-09-20 通しテスト §2-6）
+#                                                             （触れると次の切り出しと --selftest の門が固有値で落ちる＝2026-09-20 の通しの試験の節）
 #                                                          🔑 撃つ所は一番上（本陣の形なら本陣・上げる前なら棚）。本陣で撃つと中の OS の紙まで埋まり、中の OS の scripts/ は残る
 #   bash scripts/make-kit.sh --drift                        退役（配る版は棚から切り離した。撃っても照合せず exit 0）
 #   bash scripts/make-kit.sh --numbers <道…>                 配る物が指す X-n・H-n・§n が雛形の規矩に実在するか（exit 0/1）
@@ -206,16 +206,21 @@ if not t_ids or not t_secs:
 #   ⛔ 撃ち方を紙に書くだけでは守られない（次に撃つ席が README を読まずに *.md と撃つ）⇒ 機械で飛ばす。
 #   飛ばした事実は必ず 1 行出す（黙って飛ばさない）。飛ばした結果 0 本になったら落ちる（何も検査しないのを成功と呼ばせない）。
 SKIP = ("README.md",)
-# 🔑 道具（.sh・.py）は「名指しされたときだけ」読む（2026-11-21 器に .sh を足したら .md しか読まず「0 本」rc=1 で、門が二値で言えなかった）。
-#   ⛔ dir の中の道具は舐めない——道具の注釈の §n は規矩でなく全体像（SCOPE_PROGRESS）の節を指す物が多く、門の検体（X-99）も自分で持つので、
-#      舐めると器の切り出しの selftest が自分の道具で赤になる。道具の注釈には見出しが無い＝自分の見出しで § を解決しない（# の注釈を見出しと読まない）。
+# 🔑 道具（.sh・.py）も読む。名指しでも、dir の中でも（2026-11-21 孔明 K-1: dir では .md しか読まず、器の道具の 9 か所の番号の指しが名指ししないと当たらなかった）。
+#   道具の注釈で別の紙の節を指すときは番号でなく名で書く（「全体像の『便』の節」）。selftest がわざと持つ検体の行は下の印で外す。
+#   道具の注釈には見出しが無い＝自分の見出しで § を解決しない（# の注釈を見出しと読まない）。負制御は --selftest の 8 段の H。
 TOOL = (".sh", ".py")
+# 🔑 検体の印（2026-11-21 孔明 裁定 A）: 道具の selftest がわざと持つ「雛形に無い番号」（X-99・§98-7）の行は、行に印 〔番号の検体〕 を付けたときだけ数えない。
+#   ⛔ 印が効くのは道具（.sh・.py）の、印の付いたその行だけ。印の無い行の同じ番号は今までどおり落ちる。.md（配る紙）には効かない＝紙は言葉に開いて揃える。
+#   数えなかった行の数は必ず 1 行出す（黙って飛ばさない）。負制御は --selftest の 8 段の G。
+MARK = "\u3014番号の検体\u3015"
 files, skipped = [], []
 for t in targets:
     if os.path.isdir(t):
         for d, _, fs in os.walk(t):
             if "/.git" in d or d.endswith("/.git"): continue
             for f in fs:
+                if f.endswith(TOOL): files.append(os.path.join(d, f)); continue
                 if not f.endswith(".md"): continue
                 (skipped if f in SKIP else files).append(os.path.join(d, f))
     elif t.endswith(".md"):
@@ -233,13 +238,18 @@ bad = 0
 for p in files:
     lines = read(p)
     _, own = (set(), set()) if p.endswith(TOOL) else anchors(lines, True)   # § は自分の節への参照にも使われる ⇒ 自分の見出しでも解決してよい（道具は見出しを持たない）
+    marked = 0
     for i, l in enumerate(lines, 1):
+        if p.endswith(TOOL) and MARK in l:
+            marked += 1; continue
         for r in REF_ID.findall(l):
             if r not in t_ids:
                 bad += 1; print(f"❌ {p}:{i}: 規矩 {r} は器の雛形に無い（雛形に在るのは {' '.join(sorted(t_ids))}）")
         for r in REF_SEC.findall(l):
             if r not in t_secs and r not in own:
                 bad += 1; print(f"❌ {p}:{i}: §{r} はこの紙にも器の雛形の規矩にも無い")
+    if marked:
+        print(f"\u23ed {p}: 検体の印 {MARK} の付いた行 {marked} 行は数えない（印の無い行は数える）")
 print(f"✅ 番号: 配る物 {len(files)} 本が指す X-n・H-n・§n は全部、器の雛形の側に在る" if bad == 0
       else f"🚨 番号: {bad} 箇所が雛形に無い行を指している（配ると会員の棚で別の行を指す）")
 sys.exit(1 if bad else 0)
@@ -272,12 +282,12 @@ selftest() {
   mkdir -p "$t/sched"
   ( cd "$kit" && SCHEDULER_DIR="$t/sched" ROUTINE_DIR="$t/sched" python3 scripts/build_scope_progress.py 2> "$t/gen.err" ) || { cat "$t/gen.err"; die "selftest: build_scope_progress.py が落ちた"; }
   [ -s "$kit/docs/SCOPE_PROGRESS.md" ] || die "selftest: docs/SCOPE_PROGRESS.md が書かれていない"
-  # ⏳ 全体像 §9 期限（金庫の鍵）: 検体 2 件で近い順・🔴／一覧なしは「取得不能」／15 日先に印なし／期限の無い項目は出ない／§8 の後ろ（陰性対照つき）
+  # ⏳ 全体像の期限の節（金庫の鍵）: 検体 2 件で近い順・🔴／一覧なしは「取得不能」／15 日先に印なし／期限の無い項目は出ない／棚の差分の節の後ろ（陰性対照つき）
   python3 "$kit/scripts/test_build_scope_progress_kigen.py" > "$t/kigen.log" 2>&1 || { cat "$t/kigen.log"; die "selftest: 期限の節の試し（test_build_scope_progress_kigen.py）が赤"; }
-  echo "🔬 selftest: ✅ §9 期限は検体で近い順・🔴 を付け、一覧なしは「取得不能」と出す"
-  # ⏱ 全体像 §5 の便の数え方: fail は error／timeout だけ・窓の便名を括弧の頭の英語名と routine の name でも引く・check だけ／未発火は実行未記録と別の欄（陰性対照つき）
+  echo "🔬 selftest: ✅ 全体像の期限の節は検体で近い順・🔴 を付け、一覧なしは「取得不能」と出す"
+  # ⏱ 全体像の Routine の節（便）の数え方: fail は error／timeout だけ・窓の便名を括弧の頭の英語名と routine の name でも引く・check だけ／未発火は実行未記録と別の欄（陰性対照つき）
   python3 "$kit/scripts/test_build_scope_progress_bin.py" > "$t/bin.log" 2>&1 || { cat "$t/bin.log"; die "selftest: 便の数え方の試し（test_build_scope_progress_bin.py）が赤"; }
-  echo "🔬 selftest: ✅ §5 便は落ちた周だけ fail・英語名と name で窓を引き・席が立たない便を別の欄に出す"
+  echo "🔬 selftest: ✅ Routine の節の便は落ちた周だけ fail・英語名と name で窓を引き・席が立たない便を別の欄に出す"
   ( cd "$kit" && python3 scripts/kiroku.py box --slug 2000-01-01-検体 --title 検体 --state 起案 --owner AOS設置 --absorb なし > /dev/null ) || die "selftest: kiroku.py box が落ちた"
   ( cd "$kit" && python3 scripts/kiroku.py --check 08プロジェクト > /dev/null ) || die "selftest: kiroku.py --check が正しい箱で落ちる"
   step "4-1 routine だけの機体（~/.claude/scheduler/ が無く ~/.claude/routine/ だけ）で生成器 2 本が走る（負制御こみ）"
@@ -289,16 +299,16 @@ selftest() {
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home0" python3 scripts/build_agent_aliases.py --write > "$t/al0.out" 2>&1 )
   if [ $? -ne 2 ]; then cat "$t/al0.out"; echo "🚨 selftest: 時計の控えが無いのに build_agent_aliases.py が 2 で落ちない（取得不能が 0 件に化ける）"; rm -rf "$t"; exit 3; fi
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home0" python3 scripts/build_scope_progress.py --out "$t/sp0.md" 2> /dev/null ) || die "selftest: 控えが無いと build_scope_progress.py が落ちる"
-  grep -q '検体の便' "$t/sp0.md" && { echo "🚨 selftest: routine の控えが無いのに §5 に検体の便が出た（どこか別の控えを読んでいる）"; rm -rf "$t"; exit 3; }
+  grep -q '検体の便' "$t/sp0.md" && { echo "🚨 selftest: routine の控えが無いのに Routine の節に検体の便が出た（どこか別の控えを読んでいる）"; rm -rf "$t"; exit 3; }
   # 陽性対照: routines.json と runs.log だけを置く
   printf '%s\n' '{"version":1,"routines":[{"id":"0c0ffee1","name":"kentai","label":"検体の便","cron":"5 6 * * *","paused":false}]}' > "$t/home/.claude/routine/routines.json"
   printf '%s\n' '{"ts":"2000-01-01T06:05:00+09:00","routine_id":"0c0ffee1","trigger":"os","result":"ok"}' > "$t/home/.claude/routine/runs.log"
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_agent_aliases.py --write > "$t/al1.out" 2>&1 ) || { cat "$t/al1.out"; die "selftest: routine だけの機体で build_agent_aliases.py が exit 0 にならない"; }
   grep -q '^0c0ffee1,5 6 \* \* \*,0605,検体の便,' "$kr/06エージェント資産/_台帳-便.csv" || { cat "$kr/06エージェント資産/_台帳-便.csv"; die "selftest: routine の便が _台帳-便.csv に出ない"; }
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_scope_progress.py --out "$t/sp1.md" 2> "$t/sp1.err" ) || { cat "$t/sp1.err"; die "selftest: routine だけの機体で build_scope_progress.py が落ちた"; }
-  sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -q '| 06:05 | 検体の便 | — | routine | 稼働 | .* ok |' || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: routine の便が SCOPE_PROGRESS §5 に出ない（か runs.log の最終発火を読まない）"; }
+  sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -q '| 06:05 | 検体の便 | — | routine | 稼働 | .* ok |' || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: routine の便が SCOPE_PROGRESS の Routine の節に出ない（か runs.log の最終発火を読まない）"; }
   # 会員の全体像に当社の機体の事情（機体名）を焼かない
-  sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -qiw 'ami' && { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: §5 に当社の機体名が出た（配る生成器に固有の行が焼かれている）"; }
+  sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md" | grep -qiw 'ami' && { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp1.md"; die "selftest: Routine の節に当社の機体名が出た（配る生成器に固有の行が焼かれている）"; }
   # 陽性対照: 皆伝の機体（routine に加えて scheduler の控えも在る）では両方の便が合わさって出る＝scheduler の機体を壊していない
   mkdir -p "$t/home/.claude/scheduler"
   printf '%s\n' '{"schedules":[{"id":"5c4ed01e","label":"検体の皆伝便","cron":"30 7 * * *","agent":"検体席","paused":false}]}' > "$t/home/.claude/scheduler/schedules.json"
@@ -307,9 +317,9 @@ selftest() {
   { grep -q '^0c0ffee1,' "$kr/06エージェント資産/_台帳-便.csv" && grep -q '^5c4ed01e,30 7 \* \* \*,0730,検体の皆伝便,,検体席,稼働,' "$kr/06エージェント資産/_台帳-便.csv"; } || { cat "$kr/06エージェント資産/_台帳-便.csv"; die "selftest: 両方の控えが在る機体で _台帳-便.csv に片方しか出ない"; }
   ( cd "$kr" && env -u SCHEDULER_STATE -u SCHEDULER_DIR -u ROUTINE_DIR HOME="$t/home" python3 scripts/build_scope_progress.py --out "$t/sp2.md" 2> "$t/sp2.err" ) || { cat "$t/sp2.err"; die "selftest: 両方の控えが在る機体で build_scope_progress.py が落ちた"; }
   { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md" | grep -q '| 06:05 | 検体の便 | — | routine | 稼働 | .* ok |' \
-    && sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md" | grep -q '| 07:30 | 検体の皆伝便 | 検体席 | scheduler | 稼働 | .* spawned |'; } || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md"; die "selftest: 両方の控えが在る機体で §5 に片方しか出ない"; }
+    && sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md" | grep -q '| 07:30 | 検体の皆伝便 | 検体席 | scheduler | 稼働 | .* spawned |'; } || { sed -n '/^## 5\. /,/^## 6\. /p' "$t/sp2.md"; die "selftest: 両方の控えが在る機体で Routine の節に片方しか出ない"; }
   step "4-1b 時計の門（配る紙で scheduler が既定として出てこない・負制御こみ）"
-  # 🔑 切り出した直後の紙で撃つ（生成器が書いた全体像は §5 の注記で皆伝に触れるので、$kit ではなく素の切り出し）
+  # 🔑 切り出した直後の紙で撃つ（生成器が書いた全体像は Routine の節の注記で皆伝に触れるので、$kit ではなく素の切り出し）
   local kc="$t/kit-c"; bash "$0" "$kc" > /dev/null 2>&1 || die "selftest: 時計の門の検体が切り出せない"
   clock_gate "$kc" > /dev/null || { clock_gate "$kc"; die "selftest: 切り出した紙に scheduler が既定として出ている"; }
   printf '\n- 便は時計（scheduler か routine）が起こす\n' >> "$kc/06エージェント資産/README.md"
@@ -329,6 +339,8 @@ selftest() {
   ( cd "$kit" && python3 scripts/kit-ingest/verify_pages.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/verify_pages.py --selftest が exit 0 にならない" 3
   # カードの検品は ffprobe が要らない＝毎回撃つ（_ で始まる紙を数えない・壊れたカードは落ちる の両方）
   ( cd "$kit" && python3 scripts/kit-ingest/verify_cards.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/verify_cards.py --selftest が exit 0 にならない" 3
+  # 全数の台帳の生成器（列 12 本・面の台帳の 仕訳しない種類 を数える／列が空なら 0 の負制御こみ）
+  ( cd "$kit" && python3 scripts/kit-ingest/build_ledger.py --selftest > /dev/null 2>&1 ) || die "selftest: kit-ingest/build_ledger.py --selftest が exit 0 にならない" 3
   for b in $KIT_SMS; do
     [ -x "$kit/scripts/sms/$b" ] || die "selftest: 器に scripts/sms/${b} が入っていない（か実行できない）"
   done
@@ -350,33 +362,53 @@ selftest() {
   step "8 配る物の番号が雛形の規矩に実在する（負制御こみ）"
   numbers "$kit" || die "selftest: 器の中の紙が、雛形の規矩に無い番号を指している"
   mkdir -p "$t/nc"
-  printf -- '# 負制御\n\n⛔ X-99 と §98-7 を見よ（雛形に無い番号）\n' > "$t/nc/負制御.md"
+  printf -- '# 負制御\n\n⛔ X-99 と §98-7 を見よ（雛形に無い番号）\n' > "$t/nc/負制御.md"  # 〔番号の検体〕
   if numbers "$t/nc" > /dev/null 2>&1; then
-    echo "🚨 selftest: 雛形に無い番号（X-99・§98-7）を入れたのに番号の門が通った（門が死んでいる）"; rm -rf "$t"; exit 3
+    echo "🚨 selftest: 雛形に無い番号（X-99・§98-7）を入れたのに番号の門が通った（門が死んでいる）"; rm -rf "$t"; exit 3  # 〔番号の検体〕
   fi
   # 負制御 D: README を飛ばすようにしたせいで、同じ箱の本物の紙のずれを見逃していないか
   mkdir -p "$t/nc2"
-  printf -- '# 説明\n\nこの紙は X-99 が器に無いことを説明している\n' > "$t/nc2/README.md"
-  printf -- '# 配る紙\n\n⛔ X-99 を見よ\n' > "$t/nc2/配る紙.md"
+  printf -- '# 説明\n\nこの紙は X-99 が器に無いことを説明している\n' > "$t/nc2/README.md"  # 〔番号の検体〕
+  printf -- '# 配る紙\n\n⛔ X-99 を見よ\n' > "$t/nc2/配る紙.md"  # 〔番号の検体〕
   # ⛔ 「落ちたか」だけを見てはいけない——README ごと全部飛ばして 0 本になっても落ちるので、区別がつかない。
   #   ⇒ 本物の紙の名前と番号が出力に出ていることを確かめる（🪤 2026-09-20 に実際にこれで素通りした）
   local d_out; d_out=$(numbers "$t/nc2" 2>&1)
-  if ! printf '%s' "${d_out}" | grep -q '配る紙\.md:.*X-99'; then
-    echo "🚨 selftest: README を飛ばしたせいで、同じ箱の本物の紙の X-99 を見逃した"; echo "${d_out}"; rm -rf "$t"; exit 3
+  if ! printf '%s' "${d_out}" | grep -q '配る紙\.md:.*X-99'; then  # 〔番号の検体〕
+    echo "🚨 selftest: README を飛ばしたせいで、同じ箱の本物の紙の X-99 を見逃した"; echo "${d_out}"; rm -rf "$t"; exit 3  # 〔番号の検体〕
   fi
   # 負制御 F: 名指しの道具（.sh・.py）も読む（雛形に無い番号で落ち・正しい番号と番号なしで通る）
   mkdir -p "$t/nc4"
-  printf '#!/bin/bash\n# 検体: 規矩 X-99 と §98-7 を見よ\necho ok\n' > "$t/nc4/負制御.sh"
-  printf '# 検体: 規矩 X-99 を見よ\nprint(1)\n' > "$t/nc4/負制御.py"
+  printf '#!/bin/bash\n# 検体: 規矩 X-99 と §98-7 を見よ\necho ok\n' > "$t/nc4/負制御.sh"  # 〔番号の検体〕
+  printf '# 検体: 規矩 X-99 を見よ\nprint(1)\n' > "$t/nc4/負制御.py"  # 〔番号の検体〕
   printf '#!/bin/bash\n# 規矩 X-1 と §1 を見よ\necho ok\n' > "$t/nc4/正.sh"
   printf 'print(1)\n' > "$t/nc4/正.py"
   local f_out; f_out=$(numbers "$t/nc4/負制御.sh" "$t/nc4/負制御.py" 2>&1) && { echo "🚨 selftest: 雛形に無い番号を入れた .sh・.py が番号の門を通った（道具を読んでいない）"; echo "${f_out}"; rm -rf "$t"; exit 3; }
-  printf '%s' "${f_out}" | grep -q '負制御\.sh:2:.*X-99' && printf '%s' "${f_out}" | grep -q '負制御\.py:1:.*X-99' \
-    || { echo "🚨 selftest: .sh・.py の負制御が名前と番号つきで出ない"; echo "${f_out}"; rm -rf "$t"; exit 3; }
+  { printf '%s' "${f_out}" | grep -q '負制御\.sh:2:.*X-99' && printf '%s' "${f_out}" | grep -q '負制御\.py:1:.*X-99'; } || { echo "🚨 selftest: .sh・.py の負制御が名前と番号つきで出ない"; echo "${f_out}"; rm -rf "$t"; exit 3; }  # 〔番号の検体〕
   numbers "$t/nc4/正.sh" "$t/nc4/正.py" > /dev/null 2>&1 || die "selftest: 正しい番号と番号なしの .sh・.py で番号の門が落ちる"
+  # 負制御 G: 検体の印は印の付いたその行だけを外す（印の無い同じ番号は今までどおり落ちる・印だけなら通る・.md には効かない）
+  mkdir -p "$t/nc5"
+  printf '#!/bin/bash\necho "X-99 §98-7"  # 〔番号の検体〕\n# 規矩 X-99 と §98-7 を見よ\n' > "$t/nc5/印と印なし.sh"  # 〔番号の検体〕
+  printf '#!/bin/bash\necho "X-99 §98-7"  # 〔番号の検体〕\n' > "$t/nc5/印だけ.sh"  # 〔番号の検体〕
+  printf -- '# 配る紙\n\n⛔ X-99 を見よ  〔番号の検体〕\n' > "$t/nc5/印.md"  # 〔番号の検体〕
+  local g_out; g_out=$(numbers "$t/nc5/印と印なし.sh" 2>&1) && { echo "🚨 selftest: 印の無い行の雛形に無い番号が、同じ道具の印の行のせいで通った（印が行を越えて効いている）"; echo "${g_out}"; rm -rf "$t"; exit 3; }
+  { printf '%s' "${g_out}" | grep -q '印と印なし\.sh:3:.*X-9' && printf '%s' "${g_out}" | grep -q '印と印なし\.sh:3:.*§98' && ! printf '%s' "${g_out}" | grep -q '印と印なし\.sh:2:'; } || { echo "🚨 selftest: 負制御 G が印の無い 3 行目だけを名前と番号つきで出さない"; echo "${g_out}"; rm -rf "$t"; exit 3; }  # 〔番号の検体〕
+  numbers "$t/nc5/印だけ.sh" > /dev/null 2>&1 || die "selftest: 検体の印の付いた行だけの道具で番号の門が落ちる（印が効いていない）"
+  numbers "$t/nc5/印.md" > /dev/null 2>&1 && { echo "🚨 selftest: 配る紙（.md）で検体の印が効いた（紙は言葉に開く決まり）"; rm -rf "$t"; exit 3; }
+  echo "🔬 selftest: ✅ 番号の門は検体の印の付いた道具の行だけを外し、印の無い同じ番号と .md は今までどおり落とす"
+  # 負制御 H: dir を渡したときも .sh・.py を読む（名指ししなくても当たる・印の行は数えない・.md は今までどおり）
+  mkdir -p "$t/nc6/scripts"
+  printf '# 検体: 規矩 X-99 を見よ\nprint(1)\n' > "$t/nc6/scripts/印なし.py"  # 〔番号の検体〕
+  printf '#!/bin/bash\n# 全体像 §98-7 を見よ\necho ok\n' > "$t/nc6/scripts/印なし.sh"  # 〔番号の検体〕
+  printf '#!/bin/bash\necho "X-99"  # 〔番号の検体〕\n' > "$t/nc6/scripts/印だけ.sh"  # 〔番号の検体〕
+  printf -- '# 配る紙\n\n⛔ X-99 を見よ\n' > "$t/nc6/配る紙.md"  # 〔番号の検体〕
+  local h_out; h_out=$(numbers "$t/nc6" 2>&1) && { echo "🚨 selftest: dir の中の .py・.sh に雛形に無い番号を入れたのに番号の門が通った（dir で道具を読んでいない）"; echo "${h_out}"; rm -rf "$t"; exit 3; }
+  { printf '%s' "${h_out}" | grep -q '印なし\.py:1:.*X-99' && printf '%s' "${h_out}" | grep -q '印なし\.sh:2:.*§98' && printf '%s' "${h_out}" | grep -q '配る紙\.md:3:.*X-99' && ! printf '%s' "${h_out}" | grep -q '印だけ\.sh:[0-9]*:'; } || { echo "🚨 selftest: 負制御 H が dir の .py・.sh・.md の当たりを名前と番号つきで出さない（か印の行を数えた）"; echo "${h_out}"; rm -rf "$t"; exit 3; }  # 〔番号の検体〕
+  rm -f "$t/nc6/scripts/印なし.py" "$t/nc6/scripts/印なし.sh" "$t/nc6/配る紙.md"
+  numbers "$t/nc6" > /dev/null 2>&1 || die "selftest: 印の行だけの道具が在る dir で番号の門が落ちる（dir で印が効いていない）"
+  echo "🔬 selftest: ✅ 番号の門は dir を渡しても .sh・.py を読み、印の行だけを外す"
   # 負制御 E: README しか渡されなければ「0 本を検査して合格」にしない
   mkdir -p "$t/nc3"
-  printf -- '# 説明\n\nX-99 の話\n' > "$t/nc3/README.md"
+  printf -- '# 説明\n\nX-99 の話\n' > "$t/nc3/README.md"  # 〔番号の検体〕
   if numbers "$t/nc3" > /dev/null 2>&1; then
     echo "🚨 selftest: README だけを渡したのに合格した（0 本を検査して通っている）"; rm -rf "$t"; exit 3
   fi

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""全体像の §9「期限（金庫の鍵）」の試し。依存なし: `python3 scripts/test_build_scope_progress_kigen.py -v`
+"""全体像の「期限（金庫の鍵）」の節の試し。依存なし: `python3 scripts/test_build_scope_progress_kigen.py -v`
 
 仕様から書く（終わりの定義）:
   金庫の一覧（list_secrets の出力）を渡すと、説明の「期限 YYYY-MM-DD」を近い順に並べ、残り 14 日以内か切れた物に 🔴
   陰性対照: 期限の書かれていない項目は出ない／一覧を渡さないと「取得不能」（「（なし）」や 0 件とは書かない）／15 日以上先に印は付かない
   出すのは項目名と期限だけ（説明の他の文は出さない）
-  §9 は §8 の後ろ（§1〜§8 の番号は動かさない）
+  期限の節は棚の差分の節の後ろ（1〜8 の節の番号は動かさない）
 """
 import datetime as dt
 import os
@@ -82,7 +82,7 @@ class Kigen(unittest.TestCase):
         self.assertEqual((rows[0]["印"], rows[0]["残り"]), ("🔴", "日付が読めない"))
 
     def test_cli_carries_section_after_8(self):
-        # 空の棚（一時 dir）に向けて生成器を撃ち、§9 が §8 の後ろに載る配線と --vault を測る。時計の控えも空の dir に向ける
+        # 空の棚（一時 dir）に向けて生成器を撃ち、期限の節が棚の差分の節の後ろに載る配線と --vault を測る。時計の控えも空の dir に向ける
         with tempfile.TemporaryDirectory() as root:
             out = os.path.join(root, "sp.md")
             env = {**os.environ, "MIKOTO_OS_ROOT": root, "HONJIN_ROOT": root,
