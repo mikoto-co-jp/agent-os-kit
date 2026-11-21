@@ -12,7 +12,7 @@ usage:
   python3 honjin.py move <古い棚> [<本陣>]         古い形の棚を本陣へ移す（<本陣> の既定は <古い棚> の隣の「本陣」）。
                                                   確かめ → 本陣を作る → 棚を中へ → lift → 2 か所に保存（道を全部書く）
                                                   中の OS の門の配線が古い棚の中の絶対の道なら相対に替える（rollback で前の値へ）。
-                                                  会員が直した器の道具（器から来たどの版とも違う物）は替えず、差分を控えへ
+                                                  会員が直した器の道具（器から来たどの版とも違う物）と器の写しが無い道具は替えず、差分を控えへ
   python3 honjin.py check <古い棚> [<本陣>]        move の確かめだけ（何も変えない）
   python3 honjin.py rollback <本陣> <棚の名前>      move を戻す（消さない＝本陣は「本陣-戻した-<日時>」へ名前を変えて残す）
   python3 honjin.py ledger <本陣> [--old <古い道>]  BlueLamp のプロジェクト欄の帳面で、古い道の行を本陣に置き換えて今のプロジェクトにする
@@ -21,7 +21,8 @@ usage:
   python3 honjin.py version <本陣>                 規則の紙の頭の「器の版」を読む（無ければ「最初の器」）
   python3 honjin.py update <本陣> <新しい器>        器の更新の差分を作る（何も変えない）。<新しい器> は make-kit.sh で切り出した直後の dir。
                                                   差分は <中の OS>/11一時ファイル/器の更新-<日時>/ に置く
-  python3 honjin.py update <本陣> <新しい器> --apply-tools    道具（scripts/ のうち器に在る物）を入れ替える
+  python3 honjin.py update <本陣> <新しい器> --apply-tools    道具（scripts/ のうち器に在る物）を入れ替える。move と同じ見分けで、会員が直した道具と
+                                                  器の写しが無い道具は替えず、新しい器との差分を 器の更新-<日時>/器と違う道具/ に置く
   python3 honjin.py update <本陣> <差分の dir> --apply-rules  持ち主の OK の後に、混ぜた紙（規矩・メモリシステム・地図・箱の README）を当てる
   python3 honjin.py kaiden <本陣>                  皆伝の機体にだけ: 席ごとの作業場所の道具（器の写しの scripts/皆伝/honjin_wt.py）を中の OS の scripts/ に置く
   python3 honjin.py selftest                       一時 dir で lift・move・rollback・ledger・update を撃つ（負制御こみ）。exit 0＝合格
@@ -471,43 +472,79 @@ def kit_versions(osdir, r):
     return out
 
 
+TOOL_SAME, TOOL_ADD, TOOL_REPLACE, TOOL_MINE, TOOL_NOBASE, TOOL_COPY = "同じ", "足す", "替える", "直した", "元なし", "器の写し"
+
+
+def tool_verdicts(osdir, kit):
+    """器の道具 1 本ずつを、会員の棚に当てる前に見分ける（3 方向・箱 n=5346／n=5351）。**move・update・--apply-tools の判定はこの 1 つだけ**（X-27）。
+    元＝器から来たときの中身（{@link kit_versions}）／会員の今／新しい器。返り: [(道, 判定, 会員の今の中身 or None, 新しい器の中身)]
+      同じ   会員の今が新しい器と同じ＝何もしない
+      足す   会員の棚に無い＝置く
+      替える 会員の今が元のどれかと同じ（器から来たまま）＝新しい器に替える
+      直した 会員の今が元のどれとも違う＝**替えない**。新しい器との差分だけ控える
+      元なし 元が 1 つも無い（器の写しを持たない棚）＝直したか測れない＝**替えない**。差分だけ控える（日直参謀の受領 2026-11-21）
+      器の写し scripts/kit/ の下＝次の更新の元。会員の道具ではない（move は替えない・--apply-tools は替える）
+    ⚠️ 全部を見分けてから書く: --apply-tools は器の写し（元）も替えるので、書きながら見分けると元が先に新しい版になる"""
+    out = []
+    for r in tool_set(kit):
+        new_b = open(os.path.join(kit, r), "rb").read()
+        dst = os.path.join(osdir, r)
+        mine = open(dst, "rb").read() if os.path.exists(dst) else None
+        if r.startswith(os.path.join("scripts", "kit") + os.sep):
+            v = TOOL_SAME if mine == new_b else TOOL_COPY
+        elif mine is None:
+            v = TOOL_ADD
+        elif mine == new_b:
+            v = TOOL_SAME
+        else:
+            base = kit_versions(osdir, r)
+            v = TOOL_REPLACE if mine in base else (TOOL_MINE if base else TOOL_NOBASE)
+        out.append((r, v, mine, new_b))
+    return out
+
+
+def tool_diff(state, r, mine, new_b):
+    """替えなかった道具の、会員の今 → 新しい器 の差分を state/器と違う道具/<道>.diff に置く"""
+    d = os.path.join(state, "器と違う道具", r + ".diff")
+    os.makedirs(os.path.dirname(d), exist_ok=True)
+    try:
+        a, b = mine.decode("utf-8").splitlines(True), new_b.decode("utf-8").splitlines(True)
+        txt = "".join(difflib.unified_diff(a, b, f"会員の今/{r}", f"新しい器/{r}"))
+    except UnicodeDecodeError:
+        txt = "（文字でない道具＝差分を出せない）\n"
+    open(d, "w", encoding="utf-8").write(txt)
+    return d
+
+
+def place_tools(osdir, kit, state, with_copy):
+    """{@link tool_verdicts} の判定どおりに道具を置く（move と --apply-tools の共通の口）。with_copy＝器の写し（scripts/kit/）も替えるか。
+    返り: (替えた・足した道, 替えなかった会員の道（直した＋元なし）, 元なしの道)"""
+    vs = tool_verdicts(osdir, kit)
+    changed, kept, nobase = [], [], []
+    for r, v, mine, new_b in vs:
+        if v in (TOOL_MINE, TOOL_NOBASE):
+            kept.append(r)
+            if v == TOOL_NOBASE:
+                nobase.append(r)
+            if state:
+                tool_diff(state, r, mine, new_b)
+        elif v in (TOOL_ADD, TOOL_REPLACE) or (v == TOOL_COPY and with_copy):
+            dst = os.path.join(osdir, r)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(os.path.join(kit, r), dst); changed.append(r)
+    return changed, kept, nobase
+
+
 def put_tools(osdir, state=None):
     """move の中で: 門と道具を、この honjin.py が入っている器の物に替える（古い門は本陣の形を知らず、保存で落ちる）。
     器の写し（scripts/kit/ の雛形）は替えない＝更新（update）の 3 方向の元として建てた日の物を残す。
-
-    🩸 会員の実測 2026-11-21（箱 n=5346）: 会員が直して使っている器の道具（Android に足した確認コードの読み方など）を
-       中身が違うというだけで黙って上書きしていた。⇒ update の紙と同じ 3 方向で見る: 元＝器から来たときの中身（{@link kit_versions}）／
-       会員の今／新しい器。会員の今が元のどれとも違えば**会員が直した道具**＝替えず、新しい器との差分を state/器と違う道具/ に置く。
-       元が 1 つも無い道具（器の写しを持たない棚）は直したかを測れない＝今までどおり替える（前の中身は rollback が前の HEAD から戻す）。
+    🩸 会員の実測 2026-11-21（箱 n=5346・n=5351）: 会員が直して使っている器の道具を中身が違うというだけで黙って上書きしていた。
+       ⇒ 見分けは {@link tool_verdicts}（update・--apply-tools と同じ 1 つ）。会員が直した道具と、元が無い道具は替えず差分を控える。
     返り: (替えた道, 替えなかった会員の道)"""
     kit = kit_dir()
     if not os.path.isdir(os.path.join(kit, "scripts")):
         raise Stop(f"{kit} に器の道具が無い＝この honjin.py は手本（scripts/kit/ を持つ棚）から撃っていない")
-    changed, kept = [], []
-    for r in tool_set(kit):
-        if r.startswith(os.path.join("scripts", "kit") + os.sep):
-            continue
-        src, dst = os.path.join(kit, r), os.path.join(osdir, r)
-        new_b = open(src, "rb").read()
-        if os.path.exists(dst):
-            mine = open(dst, "rb").read()
-            if mine == new_b:
-                continue
-            base = kit_versions(osdir, r)
-            if base and mine not in base:
-                kept.append(r)
-                if state:
-                    d = os.path.join(state, "器と違う道具", r + ".diff")
-                    os.makedirs(os.path.dirname(d), exist_ok=True)
-                    try:
-                        a, b = mine.decode("utf-8").splitlines(True), new_b.decode("utf-8").splitlines(True)
-                        txt = "".join(difflib.unified_diff(a, b, f"会員の今/{r}", f"新しい器/{r}"))
-                    except UnicodeDecodeError:
-                        txt = "（文字でない道具＝差分を出せない）\n"
-                    open(d, "w", encoding="utf-8").write(txt)
-                continue
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst); changed.append(r)
+    changed, kept, _ = place_tools(osdir, kit, state, with_copy=False)
     return changed, kept
 
 
@@ -524,16 +561,19 @@ def update(hj, kit):
     rep = [f"# 器の更新の差分（{NOW}）", "", f"- 今の版: {a}", f"- 新しい器の版: {b}", f"- 本陣: {os.path.basename(hj)}・中の OS: {os.path.basename(osdir)}", ""]
     # 道具
     tl = tool_set(kit)
-    chg, add = [], []
-    for r in tl:
-        mine = os.path.join(osdir, r)
-        if not os.path.exists(mine):
-            add.append(r)
-        elif open(mine, "rb").read() != open(os.path.join(kit, r), "rb").read():
-            chg.append(r)
+    vs = tool_verdicts(osdir, kit)                        # --apply-tools と同じ見分け（1 つだけ）
+    by = lambda v: [r for r, x, _, _ in vs if x == v]
+    chg, add, mine_k, nob = by(TOOL_REPLACE) + by(TOOL_COPY), by(TOOL_ADD), by(TOOL_MINE), by(TOOL_NOBASE)
+    for r, x, m, n in vs:
+        if x in (TOOL_MINE, TOOL_NOBASE):
+            tool_diff(out, r, m, n)
     mine_only = sorted(set(tool_set(osdir)) - set(tl))
-    rep += ["## 1. 道具（提供元が書く所＝入れ替える・--apply-tools）", "", f"- 変わる {len(chg)}・足す {len(add)}・会員の道具（器に無い＝触らない）{len(mine_only)}", ""]
-    rep += [f"  - ~ {r}" for r in chg] + [f"  - + {r}" for r in add] + [""]
+    rep += ["## 1. 道具（提供元が書く所＝入れ替える・--apply-tools）", "",
+            f"- 変わる {len(chg)}・足す {len(add)}・替えない（会員が直した）{len(mine_k)}・替えない（器の写しが無く直したか測れない）{len(nob)}"
+            f"・会員の道具（器に無い＝触らない）{len(mine_only)}", ""]
+    rep += [f"  - ~ {r}" for r in chg] + [f"  - + {r}" for r in add]
+    rep += [f"  - = {r}（替えない（会員が直した）・差分: 器と違う道具/{r}.diff）" for r in mine_k]
+    rep += [f"  - = {r}（替えない（器の写しが無い）・差分: 器と違う道具/{r}.diff）" for r in nob] + [""]
     # 紙（3 方向で混ぜる: 元＝棚が建った時の器の写し（中の OS の scripts/kit/）／会員の今／新しい器。どれも答えで埋めてから）
     rep += ["## 2. 紙（提供元の所だけ入れ替え・会員が足した所は残す＝3 方向で混ぜた・--apply-rules は持ち主の OK の後）", ""]
     conflicts = 0
@@ -573,7 +613,7 @@ def update(hj, kit):
         rep.append(f"- {side}/{r}: {how}・足す {plus} 行・消す {minus} 行（混ぜた紙/{side}/{r}.diff）")
     rep += ["", f"衝突 {conflicts}（衝突の印 <<<<<<< ======= >>>>>>> が残る紙は --apply-rules が拒む＝持ち主と決めて直してから）", ""]
     open(os.path.join(out, "差分.md"), "w", encoding="utf-8").write("\n".join(rep) + "\n")
-    json.dump({"kit": kit, "honjin": hj, "os": osdir, "tools_change": chg, "tools_add": add, "from": a, "to": b},
+    json.dump({"kit": kit, "honjin": hj, "os": osdir, "tools_change": chg, "tools_add": add, "tools_kept": mine_k, "tools_kept_nobase": nob, "from": a, "to": b},
               open(os.path.join(out, "控え.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     say("\n".join(rep))
     say(f"== 差分の置き場: {out}（何も変えていない）")
@@ -581,15 +621,21 @@ def update(hj, kit):
 
 
 def apply_tools(hj, kit):
+    """道具を入れ替える。見分けは move と同じ {@link tool_verdicts}＝会員が直した道具と、器の写しが無い道具は替えず、
+    新しい器との差分を 11一時ファイル/器の更新-<日時>/器と違う道具/ に置く（箱 n=5351）。器の写し（scripts/kit/）は替える＝次の更新の元"""
     hj = os.path.realpath(hj); kit = os.path.realpath(kit); osdir = inner_of(hj)
-    n = 0
-    for r in tool_set(kit):
-        src, dst = os.path.join(kit, r), os.path.join(osdir, r)
-        if os.path.exists(dst) and open(dst, "rb").read() == open(src, "rb").read():
-            continue
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst); n += 1; say(f"  ~ {r}")
-    say(f"✅ apply-tools: {n} 本を入れ替えた（会員の道具には触っていない）。保存は道を全部書いて中の OS へ")
+    out = os.path.join(osdir, STATE_DIR, f"器の更新-{NOW}")
+    changed, kept, nobase = place_tools(osdir, kit, out, with_copy=True)
+    for r in changed:
+        say(f"  ~ {r}")
+    for r in kept:
+        say(f"  = {r}（替えない（{'器の写しが無い' if r in nobase else '会員が直した'}）・差分: {os.path.relpath(out, osdir)}/器と違う道具/{r}.diff）")
+    if kept:
+        os.makedirs(out, exist_ok=True)
+        json.dump({"kit": kit, "changed": changed, "kept": kept, "kept_nobase": nobase, "at": NOW},
+                  open(os.path.join(out, "入れ替えの控え.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    say(f"✅ apply-tools: {len(changed)} 本を入れ替えた・会員が直した道具 {len(kept) - len(nobase)} 本と器の写しが無い道具 {len(nobase)} 本は替えなかった"
+        f"（会員の道具には触っていない）。保存は道を全部書いて中の OS へ")
     return 0
 
 
@@ -740,7 +786,8 @@ def selftest():
         old6 = os.path.join(t, "f", "検体OS")
         repo_shelf(old6, ((K("scripts/build_agent_aliases.py"), "# 器 v1\n"), ("scripts/build_agent_aliases.py", "# 器 v1\n# 会員が足した 1 行\n"),
                           (K("scripts/check-distributable.sh"), "# 器 v1\n"), ("scripts/check-distributable.sh", "# 器 v1\n"),
-                          (K("scripts/mcplib.py"), "# 器 v0\n"), ("scripts/mcplib.py", "# 器 v0\n")))
+                          (K("scripts/mcplib.py"), "# 器 v0\n"), ("scripts/mcplib.py", "# 器 v0\n"),
+                          ("scripts/sms/read_code.sh", "# 会員が Android に足した読み方（器の写しが無い）\n")))
         open(os.path.join(old6, K("scripts/mcplib.py")), "w").write("# 器 v1\n")        # 器の写しを v1 へ（会員の道具は v0 のまま＝直していない）
         git(old6, "commit", "-q", "-m", "器の写しを v1 へ", "--", K("scripts/mcplib.py"))
         hj6 = default_honjin(old6); move(old6, hj6); n6 = os.path.join(hj6, "検体OS")
@@ -748,13 +795,45 @@ def selftest():
         assert open(os.path.join(n6, "scripts/build_agent_aliases.py")).read() == "# 器 v1\n# 会員が足した 1 行\n", "会員が直した道具を上書きした"
         st6 = sorted(d for d in os.listdir(os.path.join(n6, STATE_DIR)) if d.startswith("本陣への移し替え-"))[-1]
         c6 = json.load(open(os.path.join(n6, STATE_DIR, st6, "控え.json"), encoding="utf-8"))
-        assert c6["kept"] == ["scripts/build_agent_aliases.py"], f"替えなかった道具の控えが違う: {c6['kept']}"
-        assert os.path.getsize(os.path.join(n6, STATE_DIR, st6, "器と違う道具", "scripts/build_agent_aliases.py.diff")) > 0, "差分が無い"
+        assert c6["kept"] == ["scripts/build_agent_aliases.py", "scripts/sms/read_code.sh"], f"替えなかった道具の控えが違う: {c6['kept']}"
+        for r in c6["kept"]:
+            assert os.path.getsize(os.path.join(n6, STATE_DIR, st6, "器と違う道具", r + ".diff")) > 0, f"差分が無い: {r}"
+        assert open(os.path.join(n6, "scripts/sms/read_code.sh")).read().startswith("# 会員が Android"), "器の写しが無い道具を move が替えた"
         # 負制御: 器から来たまま（今の写しと同じ／履歴の古い版と同じ）の道具は今までどおり新しい器の物に替わる
         assert open(os.path.join(n6, "scripts/check-distributable.sh"), "rb").read() == kit_b("scripts/check-distributable.sh"), "器のままの道具が替わっていない"
         assert open(os.path.join(n6, "scripts/mcplib.py"), "rb").read() == kit_b("scripts/mcplib.py"), "器の古い版のままの道具が替わっていない"
-        say("🔬 6 move: 会員が直した道具は替えずに差分を控えへ・器のまま（今の写し／履歴の古い版）の道具は替わる（負制御 2）✅")
-        say("✅ selftest: lift・move・ledger・rollback・門の配線・会員の道具と負制御 6 つが通った（update は器の selftest が撃つ）")
+        say("🔬 6 move: 会員が直した道具と器の写しが無い道具は替えずに差分を控えへ・器のまま（今の写し／履歴の古い版）の道具は替わる（負制御 2）✅")
+        # 7 器の更新（update の差分.md と --apply-tools）も move と同じ見分け（箱 n=5351）
+        T = lambda x: os.path.join("scripts", f"t7_{x}.py")
+        for f, txt in ((K(T("a")), "# 器 v1\n"), (T("a"), "# 器 v1\n# 会員が直した 1 行\n"),
+                       (K(T("b")), "# 器 v1\n"), (T("b"), "# 器 v1\n"),
+                       (T("c"), "# 会員の道具（器の写しが無い）\n"),
+                       (K(T("d")), "# 器 v0\n"), (T("d"), "# 器 v0\n")):
+            open(os.path.join(n6, f), "w", encoding="utf-8").write(txt)
+        git(n6, "add", "--", K(T("a")), T("a"), K(T("b")), T("b"), T("c"), K(T("d")), T("d"))
+        git(n6, "commit", "-q", "-m", "検体 7", "--", K(T("a")), T("a"), K(T("b")), T("b"), T("c"), K(T("d")), T("d"))
+        open(os.path.join(n6, K(T("d"))), "w").write("# 器 v1\n")       # 写しだけ v1 へ（会員の d は履歴の古い版 v0 のまま）
+        git(n6, "commit", "-q", "-m", "検体 7 写し", "--", K(T("d")))
+        nk7 = os.path.join(t, "新しい器7")
+        for f, txt in [(T(x), "# 器 v2\n") for x in "abcd"] + [(K(T(x)), "# 器 v2\n") for x in "abcd"] + [(T("e"), "# 器 v2 新\n"), ("scripts/make-kit.sh", "#\n")]:
+            os.makedirs(os.path.dirname(os.path.join(nk7, f)), exist_ok=True)
+            open(os.path.join(nk7, f), "w", encoding="utf-8").write(txt)
+        assert update(hj6, nk7) == 0
+        u7 = sorted(d for d in os.listdir(os.path.join(n6, STATE_DIR)) if d.startswith("器の更新-"))[-1]; u7 = os.path.join(n6, STATE_DIR, u7)
+        rp7 = open(os.path.join(u7, "差分.md"), encoding="utf-8").read()
+        assert f"= {T('a')}（替えない（会員が直した）" in rp7 and f"= {T('c')}（替えない（器の写しが無い）" in rp7, "差分.md が会員の道具を見分けていない"
+        assert f"~ {T('b')}" in rp7 and f"~ {T('d')}" in rp7 and f"+ {T('e')}" in rp7, "差分.md が器のままの道具を『変わる』に並べていない"
+        assert apply_tools(hj6, nk7) == 0
+        rd = lambda f: open(os.path.join(n6, f), encoding="utf-8").read()
+        assert rd(T("a")) == "# 器 v1\n# 会員が直した 1 行\n", "--apply-tools が会員の直した道具を上書きした"
+        assert rd(T("c")) == "# 会員の道具（器の写しが無い）\n", "--apply-tools が器の写しが無い道具を上書きした"
+        for x in "ac":
+            assert os.path.getsize(os.path.join(u7, "器と違う道具", T(x) + ".diff")) > 0, f"差分が無い: {T(x)}"
+        # 負制御: 器から来たまま（今の写し／履歴の古い版）の道具・新しい道具・器の写しは新しい器に揃う＝見分けが「全部残す」になっていない
+        assert rd(T("b")) == rd(T("d")) == "# 器 v2\n" and rd(T("e")) == "# 器 v2 新\n", "器のままの道具が替わっていない"
+        assert all(rd(K(T(x))) == "# 器 v2\n" for x in "abcd"), "器の写し（次の更新の元）が新しい器に揃っていない"
+        say("🔬 7 update・--apply-tools: 会員が直した道具と器の写しが無い道具は替えず差分を控え・差分.md に『替えない』と並べる・器のままの道具と写しは替わる（負制御）✅")
+        say("✅ selftest: lift・move・ledger・rollback・門の配線・会員の道具（move と器の更新）と負制御 7 つが通った")
         return 0
     except (AssertionError, Stop) as e:
         say(f"🚨 selftest: {e}"); return 1

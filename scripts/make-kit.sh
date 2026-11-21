@@ -21,6 +21,7 @@
 #                                                          🔑 撃つ所は一番上（本陣の形なら本陣・上げる前なら棚）。本陣で撃つと中の OS の紙まで埋まり、中の OS の scripts/ は残る
 #   bash scripts/make-kit.sh --drift                        退役（配る版は棚から切り離した。撃っても照合せず exit 0）
 #   bash scripts/make-kit.sh --numbers <道…>                 配る物が指す X-n・H-n・§n が雛形の規矩に実在するか（exit 0/1）
+#                                                          dir は .md だけを舐める。道具（.sh・.py）は道を 1 本ずつ名指しすれば読む
 #   bash scripts/make-kit.sh --selftest                     空の一時 git リポに切り出して門を全部撃つ。exit 0＝合格／1＝壊れている／3＝負制御が落ちなかった
 #                                                          ffprobe が無い機体では 4-2（引き上げの門の selftest）だけ ⏭ で飛ばす（初日に動画は無い。飛ばした事実は 1 行出す）
 #
@@ -205,6 +206,10 @@ if not t_ids or not t_secs:
 #   ⛔ 撃ち方を紙に書くだけでは守られない（次に撃つ席が README を読まずに *.md と撃つ）⇒ 機械で飛ばす。
 #   飛ばした事実は必ず 1 行出す（黙って飛ばさない）。飛ばした結果 0 本になったら落ちる（何も検査しないのを成功と呼ばせない）。
 SKIP = ("README.md",)
+# 🔑 道具（.sh・.py）は「名指しされたときだけ」読む（2026-11-21 器に .sh を足したら .md しか読まず「0 本」rc=1 で、門が二値で言えなかった）。
+#   ⛔ dir の中の道具は舐めない——道具の注釈の §n は規矩でなく全体像（SCOPE_PROGRESS）の節を指す物が多く、門の検体（X-99）も自分で持つので、
+#      舐めると器の切り出しの selftest が自分の道具で赤になる。道具の注釈には見出しが無い＝自分の見出しで § を解決しない（# の注釈を見出しと読まない）。
+TOOL = (".sh", ".py")
 files, skipped = [], []
 for t in targets:
     if os.path.isdir(t):
@@ -215,6 +220,10 @@ for t in targets:
                 (skipped if f in SKIP else files).append(os.path.join(d, f))
     elif t.endswith(".md"):
         (skipped if os.path.basename(t) in SKIP else files).append(t)
+    elif t.endswith(TOOL):
+        files.append(t)
+    else:
+        print(f"\u23ed {t}: .md・.sh・.py でないので検査しない")
 files.sort()
 for q in sorted(skipped):
     print(f"\u23ed {q}: README は説明文（器に無い番号を名前で挙げる紙）なので検査しない")
@@ -223,7 +232,7 @@ if not files:
 bad = 0
 for p in files:
     lines = read(p)
-    _, own = anchors(lines, True)   # § は自分の節への参照にも使われる ⇒ 自分の見出しでも解決してよい
+    _, own = (set(), set()) if p.endswith(TOOL) else anchors(lines, True)   # § は自分の節への参照にも使われる ⇒ 自分の見出しでも解決してよい（道具は見出しを持たない）
     for i, l in enumerate(lines, 1):
         for r in REF_ID.findall(l):
             if r not in t_ids:
@@ -355,6 +364,16 @@ selftest() {
   if ! printf '%s' "${d_out}" | grep -q '配る紙\.md:.*X-99'; then
     echo "🚨 selftest: README を飛ばしたせいで、同じ箱の本物の紙の X-99 を見逃した"; echo "${d_out}"; rm -rf "$t"; exit 3
   fi
+  # 負制御 F: 名指しの道具（.sh・.py）も読む（雛形に無い番号で落ち・正しい番号と番号なしで通る）
+  mkdir -p "$t/nc4"
+  printf '#!/bin/bash\n# 検体: 規矩 X-99 と §98-7 を見よ\necho ok\n' > "$t/nc4/負制御.sh"
+  printf '# 検体: 規矩 X-99 を見よ\nprint(1)\n' > "$t/nc4/負制御.py"
+  printf '#!/bin/bash\n# 規矩 X-1 と §1 を見よ\necho ok\n' > "$t/nc4/正.sh"
+  printf 'print(1)\n' > "$t/nc4/正.py"
+  local f_out; f_out=$(numbers "$t/nc4/負制御.sh" "$t/nc4/負制御.py" 2>&1) && { echo "🚨 selftest: 雛形に無い番号を入れた .sh・.py が番号の門を通った（道具を読んでいない）"; echo "${f_out}"; rm -rf "$t"; exit 3; }
+  printf '%s' "${f_out}" | grep -q '負制御\.sh:2:.*X-99' && printf '%s' "${f_out}" | grep -q '負制御\.py:1:.*X-99' \
+    || { echo "🚨 selftest: .sh・.py の負制御が名前と番号つきで出ない"; echo "${f_out}"; rm -rf "$t"; exit 3; }
+  numbers "$t/nc4/正.sh" "$t/nc4/正.py" > /dev/null 2>&1 || die "selftest: 正しい番号と番号なしの .sh・.py で番号の門が落ちる"
   # 負制御 E: README しか渡されなければ「0 本を検査して合格」にしない
   mkdir -p "$t/nc3"
   printf -- '# 説明\n\nX-99 の話\n' > "$t/nc3/README.md"
