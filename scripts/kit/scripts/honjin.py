@@ -11,6 +11,8 @@ usage:
                                                   保存はしない（新しく建てた棚は §5 で保存する）。git の保管場所なら move を使う
   python3 honjin.py move <古い棚> [<本陣>]         古い形の棚を本陣へ移す（<本陣> の既定は <古い棚> の隣の「本陣」）。
                                                   確かめ → 本陣を作る → 棚を中へ → lift → 2 か所に保存（道を全部書く）
+                                                  中の OS の門の配線が古い棚の中の絶対の道なら相対に替える（rollback で前の値へ）。
+                                                  会員が直した器の道具（器から来たどの版とも違う物）は替えず、差分を控えへ
   python3 honjin.py check <古い棚> [<本陣>]        move の確かめだけ（何も変えない）
   python3 honjin.py rollback <本陣> <棚の名前>      move を戻す（消さない＝本陣は「本陣-戻した-<日時>」へ名前を変えて残す）
   python3 honjin.py ledger <本陣> [--old <古い道>]  BlueLamp のプロジェクト欄の帳面で、古い道の行を本陣に置き換えて今のプロジェクトにする
@@ -194,6 +196,24 @@ def nul(b):
     return [p for p in b.split("\0") if p]
 
 
+def inner_hooks(old, new):
+    """move の中で: 中の OS の core.hooksPath が**古い棚の中を指す絶対の道**なら、同じ所を指す相対の道に替える（箱 n=5346）。
+    🩸 会員の実測 2026-11-21: 絶対の道で配線した棚は、mv の後は無い場所を指し、git は門を**黙って**飛ばす（move の保存も門なしで入る）。
+    替えるのはこの 1 つだけ: 相対の道（mv で一緒に動く）・未設定は触らない。古い棚の外を指す絶対の道（共有の門など）は
+    mv の後も在るので替えず、1 行で知らせる。返り: (前の値, 後の値)。替えなかったら (前の値, 前の値)＝rollback は前の値へ戻す"""
+    hp = git(new, "config", "--local", "--get", "core.hooksPath", check=False).stdout.strip()
+    if not hp or not os.path.isabs(hp):
+        return hp, hp
+    rp = os.path.realpath(hp)       # 古い棚はもう無いが親は在る＝/var→/private/var などの別名は解ける（old も realpath）
+    if rp == old or rp.startswith(old + os.sep):
+        rel = os.path.relpath(rp, old)
+        git(new, "config", "--local", "core.hooksPath", rel)
+        say(f"✅ 中の OS の門の配線: 絶対の道 {hp} → 相対の道 {rel}（移した後も保存の前の門が動く）")
+        return hp, rel
+    say(f"⚠️ 中の OS の門の配線は棚の外の絶対の道 {hp}（移しても在る＝替えない）")
+    return hp, hp
+
+
 def move(old, hj):
     old = os.path.realpath(old)
     hj = os.path.abspath(hj)
@@ -212,10 +232,14 @@ def move(old, hj):
     except Exception:
         os.rename(new, old); os.rmdir(hj)
         raise
-    tools = put_tools(new)
-    json.dump({"old": old, "honjin": hj, "name": name, "pre": pre, "moved": moved, "tools": tools, "at": NOW},
+    hooks = inner_hooks(old, new) if repo else ("", "")
+    tools, kept = put_tools(new, state)
+    json.dump({"old": old, "honjin": hj, "name": name, "pre": pre, "moved": moved, "tools": tools, "kept": kept,
+               "hooks": list(hooks), "at": NOW},
               open(os.path.join(state, "控え.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     say(f"✅ 棚を本陣の中へ: {old} → {new}・上げた物 {len(moved)}・門と道具を新しい器の物に {len(tools)} 本（控え {os.path.relpath(state, hj)}/控え.json）")
+    if kept:
+        say(f"ℹ️ 会員が直した道具 {len(kept)} 本は替えなかった（器の新しい版との差分: {os.path.relpath(state, hj)}/器と違う道具/）:\n  " + "\n  ".join(kept))
     if not repo:
         say("ℹ️ 古い棚は git の保管場所ではなかった＝保存は §5 と同じ形で建てる側が撃つ")
         return 0
@@ -282,6 +306,9 @@ def rollback(hj, name):
             p = git(new, "commit", "-q", "-m", "本陣への移し替えを戻した", "--pathspec-from-file=" + f, "--pathspec-file-nul", check=False)
             if p.returncode not in (0, 1):
                 raise Stop("戻しの保存が門で止まった: " + (p.stderr or p.stdout)[:400])
+    hk = c.get("hooks") or []
+    if len(hk) == 2 and hk[0] != hk[1] and is_repo(new):
+        git(new, "config", "--local", "core.hooksPath", hk[0])      # 移す前の値に戻す（古い場所へ戻すので前の絶対の道がまた効く）
     os.rename(new, old)
     keep = f"{hj}-戻した-{NOW}"
     os.rename(hj, keep)
@@ -429,22 +456,59 @@ def kit_dir():
     return k
 
 
-def put_tools(osdir):
+def kit_versions(osdir, r):
+    """道具 r が**器から来たときの中身**の集合（3 方向の元・箱 n=5346）＝中の OS の器の写し `scripts/kit/<r>` の今と、
+    その保管場所の履歴に在った全部の版。会員の道具がこのどれかと同じなら、会員は直していない（器の古い版のまま）。"""
+    base = os.path.join("scripts", "kit", r)
+    out = set()
+    if os.path.exists(os.path.join(osdir, base)):
+        out.add(open(os.path.join(osdir, base), "rb").read())
+    if is_repo(osdir):
+        for c in git(osdir, "log", "--all", "--format=%H", "--", base, check=False).stdout.split():
+            p = subprocess.run(["git", "-C", osdir, "show", f"{c}:{base}"], capture_output=True)
+            if p.returncode == 0:
+                out.add(p.stdout)
+    return out
+
+
+def put_tools(osdir, state=None):
     """move の中で: 門と道具を、この honjin.py が入っている器の物に替える（古い門は本陣の形を知らず、保存で落ちる）。
-    器の写し（scripts/kit/ の雛形）は替えない＝更新（update）の 3 方向の元として建てた日の物を残す。替えた道を返す"""
+    器の写し（scripts/kit/ の雛形）は替えない＝更新（update）の 3 方向の元として建てた日の物を残す。
+
+    🩸 会員の実測 2026-11-21（箱 n=5346）: 会員が直して使っている器の道具（Android に足した確認コードの読み方など）を
+       中身が違うというだけで黙って上書きしていた。⇒ update の紙と同じ 3 方向で見る: 元＝器から来たときの中身（{@link kit_versions}）／
+       会員の今／新しい器。会員の今が元のどれとも違えば**会員が直した道具**＝替えず、新しい器との差分を state/器と違う道具/ に置く。
+       元が 1 つも無い道具（器の写しを持たない棚）は直したかを測れない＝今までどおり替える（前の中身は rollback が前の HEAD から戻す）。
+    返り: (替えた道, 替えなかった会員の道)"""
     kit = kit_dir()
     if not os.path.isdir(os.path.join(kit, "scripts")):
         raise Stop(f"{kit} に器の道具が無い＝この honjin.py は手本（scripts/kit/ を持つ棚）から撃っていない")
-    changed = []
+    changed, kept = [], []
     for r in tool_set(kit):
         if r.startswith(os.path.join("scripts", "kit") + os.sep):
             continue
         src, dst = os.path.join(kit, r), os.path.join(osdir, r)
-        if os.path.exists(dst) and open(dst, "rb").read() == open(src, "rb").read():
-            continue
+        new_b = open(src, "rb").read()
+        if os.path.exists(dst):
+            mine = open(dst, "rb").read()
+            if mine == new_b:
+                continue
+            base = kit_versions(osdir, r)
+            if base and mine not in base:
+                kept.append(r)
+                if state:
+                    d = os.path.join(state, "器と違う道具", r + ".diff")
+                    os.makedirs(os.path.dirname(d), exist_ok=True)
+                    try:
+                        a, b = mine.decode("utf-8").splitlines(True), new_b.decode("utf-8").splitlines(True)
+                        txt = "".join(difflib.unified_diff(a, b, f"会員の今/{r}", f"新しい器/{r}"))
+                    except UnicodeDecodeError:
+                        txt = "（文字でない道具＝差分を出せない）\n"
+                    open(d, "w", encoding="utf-8").write(txt)
+                continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst); changed.append(r)
-    return changed
+    return changed, kept
 
 
 def update(hj, kit):
@@ -638,7 +702,59 @@ def selftest():
         assert os.path.exists(os.path.join(old, f"{DESK_OLD}/件.md")) and os.path.exists(os.path.join(old, MAP)) and not os.path.exists(hj2)
         assert git(old, "diff", "--quiet", pre, "HEAD", check=False).returncode == 0, "rollback の後の木が前と違う"
         say("🔬 4 rollback: 前の場所・前の木に戻った（履歴は消さない・本陣は名前を変えて残した）✅")
-        say("✅ selftest: lift・move・ledger・rollback と負制御 3 つが通った（update は器の selftest が撃つ）")
+        # 5 中の OS の門の配線が古い棚の中の絶対の道（会員の実測 2026-11-21・箱 n=5346）
+        def repo_shelf(d, files=()):
+            shelf(d)
+            for f, txt in files:
+                os.makedirs(os.path.dirname(os.path.join(d, f)), exist_ok=True)
+                open(os.path.join(d, f), "w", encoding="utf-8").write(txt)
+            git(d, "init", "-q"); git(d, "config", "user.email", "k@example.invalid"); git(d, "config", "user.name", "k")
+            fs = [p for p in subprocess.run(["find", ".", "-type", "f"], cwd=d, capture_output=True, text=True).stdout.split() if "/.git/" not in p]
+            git(d, "add", "--", *fs); git(d, "commit", "-q", "-m", "検体")
+        old3 = os.path.join(t, "c", "検体OS"); repo_shelf(old3)
+        abs_hp = os.path.join(os.path.realpath(old3), "scripts", "git-hooks")
+        git(old3, "config", "core.hooksPath", abs_hp)
+        hj3 = default_honjin(old3); move(old3, hj3); n3 = os.path.join(hj3, "検体OS")
+        hp3 = git(n3, "config", "--get", "core.hooksPath").stdout.strip()
+        assert hp3 == "scripts/git-hooks", f"移した後の中の OS の門の配線が相対でない: {hp3}"
+        gate = os.path.join(n3, "scripts", "git-hooks", "pre-commit"); keep_gate = open(gate, "rb").read()
+        open(gate, "w").write("#!/bin/sh\nexit 1\n"); os.chmod(gate, 0o755)          # 必ず落ちる門＝門が効いているかの物差し
+        assert git(n3, "commit", "-q", "--allow-empty", "-m", "x", check=False).returncode != 0, "移した後に中の OS の門が効いていない"
+        # 負制御: 同じ物差しで、古い絶対の道（もう無い場所）だと門は黙って飛ばされる＝直す前の形
+        git(n3, "config", "core.hooksPath", abs_hp)
+        assert git(n3, "commit", "-q", "--allow-empty", "-m", "x", check=False).returncode == 0, "負制御: 無い道の門で落ちた（物差しが壊れている）"
+        git(n3, "reset", "-q", "--soft", "HEAD~1"); git(n3, "config", "core.hooksPath", "scripts/git-hooks")
+        open(gate, "wb").write(keep_gate)
+        say("🔬 5 move: 中の OS の門の配線が古い棚の中の絶対の道 → 相対の scripts/git-hooks に替わり、落ちる直しの保存は落ちる（負制御: 古い絶対の道のままだと黙って通る）✅")
+        rollback(hj3, "検体OS")
+        assert git(old3, "config", "--get", "core.hooksPath").stdout.strip() == abs_hp, "rollback で門の配線が前の値に戻っていない"
+        say("🔬 5' rollback: 門の配線も前の値に戻る ✅")
+        # 5'' 古い棚の外の絶対の道（共有の門）は替えない
+        shared = os.path.join(t, "共有の門"); os.makedirs(shared)
+        old5 = os.path.join(t, "e", "検体OS"); repo_shelf(old5); git(old5, "config", "core.hooksPath", shared)
+        hj5 = default_honjin(old5); move(old5, hj5)
+        assert git(os.path.join(hj5, "検体OS"), "config", "--get", "core.hooksPath").stdout.strip() == shared, "棚の外の門の配線を書き替えた"
+        say("🔬 5'' 負制御: 古い棚の外を指す絶対の道は替えない ✅")
+        # 6 会員が直した器の道具は替えない（update と同じ 3 方向: 元＝器から来たときの中身の全版）
+        K = lambda r: os.path.join("scripts", "kit", r)
+        old6 = os.path.join(t, "f", "検体OS")
+        repo_shelf(old6, ((K("scripts/build_agent_aliases.py"), "# 器 v1\n"), ("scripts/build_agent_aliases.py", "# 器 v1\n# 会員が足した 1 行\n"),
+                          (K("scripts/check-distributable.sh"), "# 器 v1\n"), ("scripts/check-distributable.sh", "# 器 v1\n"),
+                          (K("scripts/mcplib.py"), "# 器 v0\n"), ("scripts/mcplib.py", "# 器 v0\n")))
+        open(os.path.join(old6, K("scripts/mcplib.py")), "w").write("# 器 v1\n")        # 器の写しを v1 へ（会員の道具は v0 のまま＝直していない）
+        git(old6, "commit", "-q", "-m", "器の写しを v1 へ", "--", K("scripts/mcplib.py"))
+        hj6 = default_honjin(old6); move(old6, hj6); n6 = os.path.join(hj6, "検体OS")
+        kit_b = lambda r: open(os.path.join(kit_dir(), r), "rb").read()
+        assert open(os.path.join(n6, "scripts/build_agent_aliases.py")).read() == "# 器 v1\n# 会員が足した 1 行\n", "会員が直した道具を上書きした"
+        st6 = sorted(d for d in os.listdir(os.path.join(n6, STATE_DIR)) if d.startswith("本陣への移し替え-"))[-1]
+        c6 = json.load(open(os.path.join(n6, STATE_DIR, st6, "控え.json"), encoding="utf-8"))
+        assert c6["kept"] == ["scripts/build_agent_aliases.py"], f"替えなかった道具の控えが違う: {c6['kept']}"
+        assert os.path.getsize(os.path.join(n6, STATE_DIR, st6, "器と違う道具", "scripts/build_agent_aliases.py.diff")) > 0, "差分が無い"
+        # 負制御: 器から来たまま（今の写しと同じ／履歴の古い版と同じ）の道具は今までどおり新しい器の物に替わる
+        assert open(os.path.join(n6, "scripts/check-distributable.sh"), "rb").read() == kit_b("scripts/check-distributable.sh"), "器のままの道具が替わっていない"
+        assert open(os.path.join(n6, "scripts/mcplib.py"), "rb").read() == kit_b("scripts/mcplib.py"), "器の古い版のままの道具が替わっていない"
+        say("🔬 6 move: 会員が直した道具は替えずに差分を控えへ・器のまま（今の写し／履歴の古い版）の道具は替わる（負制御 2）✅")
+        say("✅ selftest: lift・move・ledger・rollback・門の配線・会員の道具と負制御 6 つが通った（update は器の selftest が撃つ）")
         return 0
     except (AssertionError, Stop) as e:
         say(f"🚨 selftest: {e}"); return 1
