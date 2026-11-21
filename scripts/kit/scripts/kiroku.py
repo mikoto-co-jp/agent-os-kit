@@ -15,7 +15,7 @@ BOX_KEYS はこの棚の箱の鍵で、CTO の箱の鍵（n・配車・repo・sc
   --check   紙が語彙表に合うか（exit 0/1・理由）。パスが箱の親フォルダなら、配下の全箱を検め、status.md の無い箱も exit 1
             python3 scripts/kiroku.py --check 08プロジェクト
             python3 scripts/kiroku.py --check 08プロジェクト/*/status.md
-  kotae     答え済みの手番を残さない（巡回の席が毎周撃つ）。既定は並べるだけ・--apply で 手番 を空にして next に答えの id を書く
+  kotae     答え済みの手番を残さない（巡回の席が毎周撃つ）。既定は並べるだけ・--apply で 手番 を「孔明｜主君の答え id=… をこの箱に落とす」へ替え、next に答えの id を書く
             結び方は器（CTO リポ scripts/kiroku.py の kotae）と同じ: 手番の『何を』の「答えの紙 <紙> … <鍵>」を帳簿の 焼き先＝答え の行に探す
             python3 scripts/kiroku.py kotae 08プロジェクト                  見るだけ（どこで撃ってもよい・rc 0）
             python3 scripts/kiroku.py kotae "$W/08プロジェクト" --apply   書く＝席の作業木の中だけ（W=$(python3 scripts/honjin_wt.py open <short_id> | tail -1)）
@@ -456,11 +456,22 @@ def _is_main_checkout(path):
     return bool(g and c) and os.path.realpath(g) == os.path.realpath(c)
 
 
-def kotae_rewrite(text, ids):
-    """frontmatter の 手番 を空に・next の頭に答えの id を（next が無ければ 手番 の次に足す）。他の行は 1 バイトも変えない（器と同じ）。"""
+# 🔑 答えが揃った箱の手番は空にしない（器と同じ・CTO 箱 n=5253 (9)／n=5258）: 空の手番を拾う巡回が無い＝答えが箱に落ちないまま止まる。
+#    ⇒ 手番＝「<中の手番>｜主君の答え id=… をこの箱に落とす｜🔬 …」。この棚の中の手番は 孔明（DARE_VOCAB の司令塔。器の 02案件/ の 日直参謀 に当たる）。
+KOTAE_CHIEF = "孔明"
+
+
+def kotae_teban(ids, chief=KOTAE_CHIEF):
+    return "%s｜主君の答え id=%s をこの箱に落とす｜🔬 帳簿 焼き先=答え id=%s（kiroku.py kotae）" % (
+        chief, "・".join(ids), "・".join(ids))
+
+
+def kotae_rewrite(text, ids, chief=KOTAE_CHIEF):
+    """frontmatter の 手番 を「<chief>｜主君の答え id=… をこの箱に落とす｜🔬 …」に・next の頭に答えの id を（next が無ければ 手番 の次に足す）。
+    他の行は 1 バイトも変えない（器と同じ）。"""
     m = FM_RE.match(text)
     lines = m.group(1).split("\n")
-    head = "答え 帳簿 " + "・".join(ids) + "（kiroku.py kotae が手番を空にした）"
+    head = "答え 帳簿 " + "・".join(ids) + "（kiroku.py kotae が手番を " + chief + " へ替えた）"
     out, new_next, at, i = [], None, None, 0
     while i < len(lines):
         j = i + 1
@@ -468,7 +479,7 @@ def kotae_rewrite(text, ids):
             j += 1
         key = lines[i].split(":", 1)[0].strip() if ":" in lines[i] and not lines[i][:1].isspace() else None
         if key == "手番":
-            out.append("手番: ")
+            out.append("手番: " + kotae_teban(ids, chief))
             at = len(out)
         elif key == "next":
             old = one_line(" ".join([lines[i].split(":", 1)[1]] + lines[i + 1:j]))
@@ -484,7 +495,7 @@ def kotae_rewrite(text, ids):
 
 
 def cmd_kotae(a):
-    """答え済みの手番を並べる（--apply で 手番 を空にし、next の頭に答えの id を書く・他の行と本文は不変）。
+    """答え済みの手番を並べる（--apply で 手番 を「孔明｜主君の答え id=… をこの箱に落とす」へ替え、next の頭に答えの id を書く・他の行と本文は不変）。
     出力の形は器（CTO リポの kotae）と同じ: 説明は stderr・書いた道だけを stdout に 1 行ずつ（honjin_wt.py push -- にそのまま渡せる）。
     ⛔ 本体の作業木（全席の作業場所）では --apply を撃たない＝席の作業木（honjin_wt.py open）の中の 08プロジェクト で撃つ。
     rc: 0＝通った（見るだけで答え済みが在っても 0）／2＝本体の作業木で --apply・置き場が無い・帳簿を測れない（どれも 1 字も書いていない）。"""
@@ -538,7 +549,7 @@ def cmd_kotae(a):
     wrote = 0
     for name, sp, raw, ids in plans:
         if not a.apply:
-            print(f"変える（見るだけ・--apply で書く）: {name}（手番を空・next の頭に 答え 帳簿 {'・'.join(ids)}）", file=sys.stderr)
+            print(f"変える（見るだけ・--apply で書く）: {name}（手番を {KOTAE_CHIEF} へ・next の頭に 答え 帳簿 {'・'.join(ids)}）", file=sys.stderr)
             continue
         with open(sp, "rb") as f:
             if f.read() != raw:
@@ -547,7 +558,7 @@ def cmd_kotae(a):
         with open(sp, "w", encoding="utf-8") as f:
             f.write(kotae_rewrite(raw.decode("utf-8"), ids))
         wrote += 1
-        print(f"書いた: {name}（手番を空・next の頭に 答え 帳簿 {'・'.join(ids)}）", file=sys.stderr)
+        print(f"書いた: {name}（手番を {KOTAE_CHIEF} へ・next の頭に 答え 帳簿 {'・'.join(ids)}）", file=sys.stderr)
         print(os.path.abspath(sp))
     print(f"答え済みの手番 {len(plans)} 箱" + (f"（{wrote} 箱を書いた）" if a.apply else "（見るだけ）"), file=sys.stderr)
     return 0
@@ -606,7 +617,7 @@ def main(argv=None):
         if k != "updated":
             p.add_argument(f"--{k}", dest=k, default=None)
     p.add_argument("--root", help="箱の親（既定 <棚>/08プロジェクト/）")
-    k = sub.add_parser("kotae", help="答え済みの手番を並べる／--apply で空にする")
+    k = sub.add_parser("kotae", help="答え済みの手番を並べる／--apply で 孔明｜主君の答え id=… をこの箱に落とす へ替える")
     k.add_argument("paths", nargs="+")
     k.add_argument("--apply", action="store_true")
     a = ap.parse_args(argv)
