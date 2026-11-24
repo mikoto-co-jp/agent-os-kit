@@ -20,7 +20,8 @@ usage:
   python3 honjin.py clocks <道>                    時計の控え（routine・scheduler）でその道を読む物を並べる（読むだけ）
   python3 honjin.py version <本陣>                 規則の紙の頭の「器の版」を読む（無ければ「最初の器」）
   python3 honjin.py update <本陣> <新しい器>        器の更新の差分を作る（何も変えない）。<新しい器> は make-kit.sh で切り出した直後の dir。
-                                                  差分は <中の OS>/11一時ファイル/器の更新-<日時>/ に置く
+                                                  差分は <中の OS>/11一時ファイル/器の更新-<日時>/ に置く。最後の行が「== 判定: 更新あり／更新なし」
+                                                  ＝更新の有無は中身の違い（道具の 変わる・足す と 紙の差分）だけで決める（器の版の名前は見ない）
   python3 honjin.py update <本陣> <新しい器> --apply-tools    道具（scripts/ のうち器に在る物）を入れ替える。move と同じ見分けで、会員が直した道具と
                                                   器の写しが無い道具は替えず、新しい器との差分を 器の更新-<日時>/器と違う道具/ に置く
   python3 honjin.py update <本陣> <差分の dir> --apply-rules  持ち主の OK の後に、混ぜた紙（規矩・メモリシステム・地図・箱の README）を当てる
@@ -577,6 +578,7 @@ def update(hj, kit):
     # 紙（3 方向で混ぜる: 元＝棚が建った時の器の写し（中の OS の scripts/kit/）／会員の今／新しい器。どれも答えで埋めてから）
     rep += ["## 2. 紙（提供元の所だけ入れ替え・会員が足した所は残す＝3 方向で混ぜた・--apply-rules は持ち主の OK の後）", ""]
     conflicts = 0
+    papers = 0                                            # 中身が変わる紙の数（判定に使う）
     for r, side in merge_set(kit):
         mine = os.path.join(hj if side == "本陣" else osdir, r)
         base_p = os.path.join(osdir, "scripts", "kit", r)
@@ -601,7 +603,7 @@ def update(hj, kit):
                 how = f"混ぜた（衝突 {n}）" if n else "混ぜた（衝突 0）"
             if res == mine_t:
                 continue                                  # 器はこの紙の提供元の所を変えていない（会員の足した所だけが違う）
-        conflicts += n
+        conflicts += n; papers += 1
         dst = os.path.join(out, "混ぜた紙", side, r)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         open(dst, "w", encoding="utf-8").write(res)
@@ -612,8 +614,15 @@ def update(hj, kit):
         minus = sum(1 for l in d.splitlines() if l.startswith("-") and not l.startswith("---"))
         rep.append(f"- {side}/{r}: {how}・足す {plus} 行・消す {minus} 行（混ぜた紙/{side}/{r}.diff）")
     rep += ["", f"衝突 {conflicts}（衝突の印 <<<<<<< ======= >>>>>>> が残る紙は --apply-rules が拒む＝持ち主と決めて直してから）", ""]
+    # 判定（箱 n=5469）: 更新の有無は中身の違いだけで決める。器の版の名前は中身が直っても同じことがある（2026-11-21 に規則の紙が直ったのに
+    #   版は本陣-1 のまま＝版で比べた席が『更新なし』で終えた）。⇒ 版は見出しの印にとどめ、判定に使わない（正本を中身 1 つに）
+    has = bool(chg or add or papers)
+    verdict = (f"== 判定: 更新あり（道具 変わる {len(chg)}・足す {len(add)}・紙 {papers}。器の版の名前は見ていない）" if has
+               else "== 判定: 更新なし（道具も紙も中身の違い 0。器の版の名前は見ていない）")
+    rep += [verdict]
     open(os.path.join(out, "差分.md"), "w", encoding="utf-8").write("\n".join(rep) + "\n")
-    json.dump({"kit": kit, "honjin": hj, "os": osdir, "tools_change": chg, "tools_add": add, "tools_kept": mine_k, "tools_kept_nobase": nob, "from": a, "to": b},
+    json.dump({"kit": kit, "honjin": hj, "os": osdir, "tools_change": chg, "tools_add": add, "tools_kept": mine_k, "tools_kept_nobase": nob, "from": a, "to": b,
+               "papers_changed": papers, "has_update": has},
               open(os.path.join(out, "控え.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     say("\n".join(rep))
     say(f"== 差分の置き場: {out}（何も変えていない）")
@@ -678,6 +687,7 @@ def kaiden(hj):
 
 # ---------------------------------------------------------------- selftest
 def selftest():
+    global NOW                                            # 8 で器の更新の置き場の名前を分ける（同じ秒に 2 回撃つ）
     t = tempfile.mkdtemp(prefix="honjin-selftest-")
     env_pj = os.path.join(t, "projects.json")
     os.environ["HONJIN_PROJECTS_JSON"] = env_pj
@@ -833,7 +843,25 @@ def selftest():
         assert rd(T("b")) == rd(T("d")) == "# 器 v2\n" and rd(T("e")) == "# 器 v2 新\n", "器のままの道具が替わっていない"
         assert all(rd(K(T(x))) == "# 器 v2\n" for x in "abcd"), "器の写し（次の更新の元）が新しい器に揃っていない"
         say("🔬 7 update・--apply-tools: 会員が直した道具と器の写しが無い道具は替えず差分を控え・差分.md に『替えない』と並べる・器のままの道具と写しは替わる（負制御）✅")
-        say("✅ selftest: lift・move・ledger・rollback・門の配線・会員の道具（move と器の更新）と負制御 7 つが通った")
+        # 8 更新の有無は中身で決める（箱 n=5469）: 器の版の名前が同じでも、規則の紙が 1 行直れば『更新あり』・何も直していなければ『更新なし』
+        mem = os.path.join(RULES, "メモリシステム.md")
+        cur = open(os.path.join(hj6, mem), encoding="utf-8").read()
+        def kit8(name, paper):
+            d = os.path.join(t, name); shutil.copytree(nk7, d)
+            os.makedirs(os.path.join(d, RULES), exist_ok=True)
+            open(os.path.join(d, mem), "w", encoding="utf-8").write(paper); return d
+        def last(d):
+            u = sorted(x for x in os.listdir(os.path.join(n6, STATE_DIR)) if x.startswith("器の更新-"))[-1]
+            return json.load(open(os.path.join(n6, STATE_DIR, u, "控え.json"), encoding="utf-8")), open(os.path.join(n6, STATE_DIR, u, "差分.md"), encoding="utf-8").read()
+        NOW = NOW + "-8a"; assert update(hj6, kit8("新しい器8a", cur)) == 0
+        c8a, r8a = last(n6)
+        assert c8a["has_update"] is False and "== 判定: 更新なし" in r8a, f"何も直していない器で『更新あり』: {c8a}"
+        NOW = NOW + "b"; assert update(hj6, kit8("新しい器8b", cur + "- 提供元が足した 1 行\n")) == 0
+        c8b, r8b = last(n6)
+        assert c8b["has_update"] is True and c8b["papers_changed"] == 1 and "== 判定: 更新あり" in r8b, f"紙が 1 行直ったのに『更新なし』: {c8b}"
+        assert c8b["from"] == c8a["from"], "検体の器の版の名前が動いた（版を同じにしたまま試す）"
+        say("🔬 8 update の判定: 器の版の名前が同じでも、紙が 1 行直れば『更新あり』・直していなければ『更新なし』（負制御）✅")
+        say("✅ selftest: lift・move・ledger・rollback・門の配線・会員の道具（move と器の更新）・更新の有無の判定と負制御 8 つが通った")
         return 0
     except (AssertionError, Stop) as e:
         say(f"🚨 selftest: {e}"); return 1
