@@ -475,6 +475,20 @@ def kit_versions(osdir, r):
 
 TOOL_SAME, TOOL_ADD, TOOL_REPLACE, TOOL_MINE, TOOL_NOBASE, TOOL_COPY = "同じ", "足す", "替える", "直した", "元なし", "器の写し"
 
+# 皆伝の機体にだけ置く道具（箱 n=5658）: 会員の棚の置き場 → 器の中の道（器の写し scripts/kit/ の下の道から scripts/kit/ を除いた物）。
+# kaiden が置き、tool_verdicts が update・--apply-tools で同じ 3 方向の見分けに掛ける（置き場の正本はこの表 1 つ）。
+# 🩸 n=5656 で honjin_wt.py を直して公開したが、kaiden は在れば上書きせず tool_set は scripts/皆伝/ を外すので、会員の置いた写しが替わらなかった
+PLACED_TOOLS = {os.path.join("scripts", "honjin_wt.py"): os.path.join("scripts", "皆伝", "honjin_wt.py")}
+
+
+def placed_src(kit, r):
+    """置いた道具 r の新しい器の中身の道。切り出した器では器の写し（scripts/kit/ の下）にだけ在り、器の正本では scripts/皆伝/ に在る"""
+    src = PLACED_TOOLS.get(r, r)
+    for c in (os.path.join(kit, "scripts", "kit", src), os.path.join(kit, src)):
+        if os.path.exists(c):
+            return c
+    return None
+
 
 def tool_verdicts(osdir, kit):
     """器の道具 1 本ずつを、会員の棚に当てる前に見分ける（3 方向・箱 n=5346／n=5351）。**move・update・--apply-tools の判定はこの 1 つだけ**（決まり「同じ事実を 2 か所に持たせない」）。
@@ -485,10 +499,13 @@ def tool_verdicts(osdir, kit):
       直した 会員の今が元のどれとも違う＝**替えない**。新しい器との差分だけ控える
       元なし 元が 1 つも無い（器の写しを持たない棚）＝直したか測れない＝**替えない**。差分だけ控える（日直参謀の受領 2026-11-21）
       器の写し scripts/kit/ の下＝次の更新の元。会員の道具ではない（move は替えない・--apply-tools は替える）
-    ⚠️ 全部を見分けてから書く: --apply-tools は器の写し（元）も替えるので、書きながら見分けると元が先に新しい版になる"""
+    ⚠️ 全部を見分けてから書く: --apply-tools は器の写し（元）も替えるので、書きながら見分けると元が先に新しい版になる
+    皆伝の道具（{@link PLACED_TOOLS}）は、会員の棚に置いてあるときだけ数える（元＝器の写し scripts/kit/scripts/皆伝/ の今と履歴）。
+      置いていない棚では足さない＝置くのは kaiden だけ"""
     out = []
-    for r in tool_set(kit):
-        new_b = open(os.path.join(kit, r), "rb").read()
+    placed = [r for r in sorted(PLACED_TOOLS) if os.path.exists(os.path.join(osdir, r)) and placed_src(kit, r)]
+    for r in tool_set(kit) + placed:
+        new_b = open(placed_src(kit, r) if r in PLACED_TOOLS else os.path.join(kit, r), "rb").read()
         dst = os.path.join(osdir, r)
         mine = open(dst, "rb").read() if os.path.exists(dst) else None
         if r.startswith(os.path.join("scripts", "kit") + os.sep):
@@ -498,7 +515,7 @@ def tool_verdicts(osdir, kit):
         elif mine == new_b:
             v = TOOL_SAME
         else:
-            base = kit_versions(osdir, r)
+            base = kit_versions(osdir, PLACED_TOOLS.get(r, r))
             v = TOOL_REPLACE if mine in base else (TOOL_MINE if base else TOOL_NOBASE)
         out.append((r, v, mine, new_b))
     return out
@@ -532,7 +549,7 @@ def place_tools(osdir, kit, state, with_copy):
         elif v in (TOOL_ADD, TOOL_REPLACE) or (v == TOOL_COPY and with_copy):
             dst = os.path.join(osdir, r)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(os.path.join(kit, r), dst); changed.append(r)
+            shutil.copy2(placed_src(kit, r) if r in PLACED_TOOLS else os.path.join(kit, r), dst); changed.append(r)
     return changed, kept, nobase
 
 
@@ -561,8 +578,8 @@ def update(hj, kit):
     say(f"== update: 器の版 今 {a} → 新しい器 {b}（答え {len(v)} 個を主君.md と棚から読んだ: {', '.join(v)}）")
     rep = [f"# 器の更新の差分（{NOW}）", "", f"- 今の版: {a}", f"- 新しい器の版: {b}", f"- 本陣: {os.path.basename(hj)}・中の OS: {os.path.basename(osdir)}", ""]
     # 道具
-    tl = tool_set(kit)
     vs = tool_verdicts(osdir, kit)                        # --apply-tools と同じ見分け（1 つだけ）
+    tl = [r for r, _, _, _ in vs]                         # 置いた皆伝の道具も器の道具に数える（会員の道具に並べない）
     by = lambda v: [r for r, x, _, _ in vs if x == v]
     chg, add, mine_k, nob = by(TOOL_REPLACE) + by(TOOL_COPY), by(TOOL_ADD), by(TOOL_MINE), by(TOOL_NOBASE)
     for r, x, m, n in vs:
@@ -674,12 +691,13 @@ def apply_rules(hj, out):
 # ---------------------------------------------------------------- kaiden（席ごとの作業場所）
 def kaiden(hj):
     hj = os.path.realpath(hj); osdir = inner_of(hj)
-    src = os.path.join(osdir, "scripts", "kit", "scripts", "皆伝", "honjin_wt.py")
-    dst = os.path.join(osdir, "scripts", "honjin_wt.py")
+    (r, s), = PLACED_TOOLS.items()                        # 置き場の正本は PLACED_TOOLS（器の更新もこの表で置き直す）
+    src = os.path.join(osdir, "scripts", "kit", s)
+    dst = os.path.join(osdir, r)
     if not os.path.exists(src):
         raise Stop(f"器の写しに {os.path.relpath(src, osdir)} が無い（器が古い＝先に update）")
     if os.path.exists(dst):
-        say(f"— kaiden: {os.path.relpath(dst, hj)} は既に在る（上書きしない）"); return 0
+        say(f"— kaiden: {os.path.relpath(dst, hj)} は既に在る（上書きしない・新しい版へは update --apply-tools が置き直す）"); return 0
     shutil.copy2(src, dst); os.chmod(dst, 0o755)
     say(f"✅ kaiden: 席ごとの作業場所の道具を置いた（{os.path.relpath(dst, osdir)}）。使えるのは外への写し（origin）を作った後")
     return 0
@@ -861,7 +879,34 @@ def selftest():
         assert c8b["has_update"] is True and c8b["papers_changed"] == 1 and "== 判定: 更新あり" in r8b, f"紙が 1 行直ったのに『更新なし』: {c8b}"
         assert c8b["from"] == c8a["from"], "検体の器の版の名前が動いた（版を同じにしたまま試す）"
         say("🔬 8 update の判定: 器の版の名前が同じでも、紙が 1 行直れば『更新あり』・直していなければ『更新なし』（負制御）✅")
-        say("✅ selftest: lift・move・ledger・rollback・門の配線・会員の道具（move と器の更新）・更新の有無の判定と負制御 8 つが通った")
+        # 9 皆伝の道具（箱 n=5658）: kaiden で置いた scripts/honjin_wt.py は、器から来たままなら update --apply-tools で新しい版に置き直る
+        (wr, ws), = PLACED_TOOLS.items()
+        def kit9(name, body):
+            d = os.path.join(t, name); shutil.copytree(nk7, d)
+            os.makedirs(os.path.dirname(os.path.join(d, K(ws))), exist_ok=True)
+            open(os.path.join(d, K(ws)), "w", encoding="utf-8").write(body); return d
+        assert placed_src(kit9("新しい器9a", "# wt v2\n"), wr), "切り出した器の写しの皆伝の道具を引けない"
+        NOW = NOW + "-9a"; assert apply_tools(hj6, os.path.join(t, "新しい器9a")) == 0
+        assert not os.path.exists(os.path.join(n6, wr)), "置いていない棚に皆伝の道具を足した（置くのは kaiden だけ）"
+        os.makedirs(os.path.dirname(os.path.join(n6, K(ws))), exist_ok=True)
+        open(os.path.join(n6, K(ws)), "w", encoding="utf-8").write("# wt v1\n")      # 前の器で kaiden した棚
+        git(n6, "add", "--", K(ws)); git(n6, "commit", "-q", "-m", "検体 9 写し v1", "--", K(ws))
+        assert kaiden(hj6) == 0 and rd(wr) == "# wt v1\n"
+        git(n6, "add", "--", wr); git(n6, "commit", "-q", "-m", "検体 9 kaiden", "--", wr)
+        NOW = NOW + "b"; assert update(hj6, kit9("新しい器9b", "# wt v2\n")) == 0
+        c9, r9 = last(n6)
+        assert f"~ {wr}" in r9 and wr in c9["tools_change"], "差分.md が置いた皆伝の道具を『変わる』に並べていない"
+        NOW = NOW + "c"; assert apply_tools(hj6, os.path.join(t, "新しい器9b")) == 0
+        assert open(os.path.join(n6, wr), "rb").read() == open(placed_src(os.path.join(t, "新しい器9b"), wr), "rb").read(), "器のままの皆伝の道具が新しい版に置き直っていない"
+        assert rd(K(ws)) == "# wt v2\n", "皆伝の道具の器の写し（次の更新の元）が新しい器に揃っていない"
+        # 負制御: 会員が直した honjin_wt.py は替えず、差分を控えに出す
+        open(os.path.join(n6, wr), "w", encoding="utf-8").write("# wt v2\n# 会員が直した 1 行\n")
+        NOW = NOW + "d"; assert apply_tools(hj6, kit9("新しい器9d", "# wt v3\n")) == 0
+        assert rd(wr) == "# wt v2\n# 会員が直した 1 行\n", "--apply-tools が会員の直した皆伝の道具を上書きした"
+        u9 = sorted(x for x in os.listdir(os.path.join(n6, STATE_DIR)) if x.startswith("器の更新-"))[-1]
+        assert os.path.getsize(os.path.join(n6, STATE_DIR, u9, "器と違う道具", wr + ".diff")) > 0, "会員が直した皆伝の道具の差分が控えに無い"
+        say("🔬 9 皆伝の道具: 前の器で kaiden した honjin_wt.py は --apply-tools で新しい版に置き直る・置いていない棚には足さない・会員が直した物は替えず差分を控える（負制御 2）✅")
+        say("✅ selftest: lift・move・ledger・rollback・門の配線・会員の道具（move と器の更新）・更新の有無の判定・皆伝の道具の置き直しと負制御 9 つが通った")
         return 0
     except (AssertionError, Stop) as e:
         say(f"🚨 selftest: {e}"); return 1
