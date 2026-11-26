@@ -15,6 +15,8 @@ usage:
   python3 honjin_wt.py open <short_id>               席の作業木 2 本を切る（在ればそのパスを返すだけ）。stdout 最終行＝本陣側のパス
   python3 honjin_wt.py sync                          自席の作業木 2 本を origin/main へ追随させる（cwd が自席の作業木の中）
   python3 honjin_wt.py push -m <msg> -- <path>...    <path> だけを commit して origin/main へ push する。
+                                                     差分が無くても、自席の HEAD に origin/main に無い commit が在れば送る（0 本なら何もしない）。
+                                                     門（hook）が commit を止めたら、<path> の下で index に積んだ物を戻してから止まる
                                                      `<中の OS>/` で始まる道は中の OS の作業木で、それ以外は本陣の作業木で commit する
   python3 honjin_wt.py close                         自席の作業木 2 本を畳む。未 commit か未 push が在れば何も消さず rc=1
 
@@ -282,7 +284,7 @@ def _commit_from_index(top, msg, paths, label):
                            env={**os.environ, **env})
         sys.stdout.write(p.stdout); sys.stderr.write(p.stderr)
         if p.returncode != 0:
-            raise Stop(2, f"❌ {label}: commit が失敗（hook が止めた可能性・上の出力を読む）rc={p.returncode}")
+            raise Stop(2, f"❌ {label}: commit が失敗（hook が止めた可能性・上の出力を読む）rc={p.returncode}。{_unstage(top, paths)}")
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -315,8 +317,38 @@ def _commit(top, msg, paths, label):
     p = subprocess.run(["git", "commit", "-q", "-m", msg, "--", *paths], cwd=top, capture_output=True, text=True)
     sys.stdout.write(p.stdout); sys.stderr.write(p.stderr)
     if p.returncode != 0:
-        raise Stop(2, f"❌ {label}: commit が失敗（hook が止めた可能性・上の出力を読む）rc={p.returncode}")
+        raise Stop(2, f"❌ {label}: commit が失敗（hook が止めた可能性・上の出力を読む）rc={p.returncode}。{_unstage(top, paths)}")
     return True
+
+
+def _unstage(top, paths):
+    """commit が止まったとき、この道具が <道> の下で index に積んだ物を HEAD の形へ戻す（手元のファイルはそのまま）。
+    🔑 戻さないと、止まった後に席が撃つ別の commit（`git commit` の素撃ち・他の道具）が、積んだままの物を黙って拾う。
+    → 戻せた／戻せなかった（戻し方）を 1 文で返す（Stop の言い方に足す）"""
+    p = git("reset", "-q", "HEAD", "--", *paths, cwd=top, check=False)
+    if p.returncode == 0:
+        return "index は撃つ前の形に戻した（手元のファイルは変えていない）"
+    return (f"⚠️ index に積んだ物が残っている（戻せなかった: {p.stderr.strip()}）。"
+            f"戻すには git -C {top} reset -q HEAD -- <道>")
+
+
+def _ahead(top):
+    """自席の HEAD に在って origin/main に無い commit の本数（取り直した origin/main と比べる）"""
+    git("fetch", "-q", REMOTE, BRANCH, cwd=top)
+    return int(git("rev-list", "--count", "HEAD", "--not", f"{REMOTE}/{BRANCH}", cwd=top).stdout.strip() or 0)
+
+
+def _save(top, msg, paths, label):
+    """<道> を commit して送る。差分が無くても、自席の HEAD に送っていない commit が在れば送る。
+    🔑 前の push が途中で止まった（積み直しの上限・網）と commit は HEAD に残る。同じ道で撃ち直すと「差分なし」になり、
+       旧は送らずに rc=0 で黙った＝保存したつもりで別の機体へ届かない。⛔ 送っていない commit が 0 本なら今どおり何もしない"""
+    if _commit(top, msg, paths, label):
+        return push_head(top, label)
+    n = _ahead(top)
+    if n == 0:
+        return 0
+    print(f"… {label}: 差分は無いが、{REMOTE}/{BRANCH} に無い commit が自席の HEAD に {n} 本在る → 送る")
+    return push_head(top, label)
 
 
 def cmd_push(msg, paths, cwd):
@@ -334,10 +366,10 @@ def cmd_push(msg, paths, cwd):
         else:
             outer.append(rel)
     # 中の OS を先に: 本陣の commit が中の OS の道具（hook）を新しい形で撃てるように
-    if inner and _commit(inner_top, msg, inner, "中の OS"):
-        push_head(inner_top, "中の OS")
-    if outer and _commit(top, msg, outer, "本陣"):
-        push_head(top, "本陣")
+    if inner:
+        _save(inner_top, msg, inner, "中の OS")
+    if outer:
+        _save(top, msg, outer, "本陣")
     return 0
 
 

@@ -442,9 +442,14 @@ selftest() {
   ( cd "$os1" && git add -- CLAUDE.md 01商品資産/.gitkeep && sh scripts/git-hooks/pre-commit ) || die "selftest: 中の OS で正しい物の pre-commit が落ちる"
   mkdir -p "$hj/08プロジェクト/2000-01-02-悪い箱"
   printf -- '---\ntitle: 悪い箱\nstate: 未着手\nowner: x\nresume: \nnext: \nabsorb: x\ndue: \ntmp_ttl: \nupdated: 2000-01-02\n---\n# 悪い箱\n' > "$hj/08プロジェクト/2000-01-02-悪い箱/status.md"
-  if ( cd "$os1" && sh scripts/git-hooks/pre-commit > /dev/null 2>&1 ); then
-    echo "🚨 selftest: 本陣に語彙外の箱が在るのに中の OS の pre-commit が通った（門が本陣の箱を見ていない）"; rm -rf "$t"; exit 3
+  # 🔑 箱の門は commit が触る箱だけを検める（他の席の書きかけの箱で、箱に触れない保存を止めない）
+  ( cd "$os1" && sh scripts/git-hooks/pre-commit > /dev/null 2>&1 ) || die "selftest: 中の OS の保存（箱に触れない）が本陣の語彙外の箱で止まった"
+  ( cd "$hj" && git add -- 08プロジェクト/2000-01-02-悪い箱/status.md )
+  if ( cd "$hj" && sh scripts/git-hooks/pre-commit > /dev/null 2>&1 ); then
+    echo "🚨 selftest: 語彙外の箱を積んだ本陣の pre-commit が通った（門がその箱を見ていない）"; rm -rf "$t"; exit 3
   fi
+  ( cd "$hj" && git rm -q --cached -- 08プロジェクト/2000-01-02-悪い箱/status.md )
+  ( cd "$hj" && sh scripts/git-hooks/pre-commit > /dev/null 2>&1 ) || die "selftest: 本陣の保存（悪い箱に触れない）が語彙外の箱で止まった"
   mv "$hj/08プロジェクト/2000-01-02-悪い箱" "$t/悪い箱"
   step "10 器の更新（3 方向で混ぜる: 会員が足した行は残り・提供元の直しは入る・衝突は当てない）"
   local nk="$t/新しい器"; bash "$0" "$nk" > /dev/null 2>&1 || die "selftest: 新しい器が切り出せない"
