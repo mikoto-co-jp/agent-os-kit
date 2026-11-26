@@ -60,6 +60,25 @@ clock_gate() {
   echo "✅ 時計の門: scheduler は seki の規則と皆伝の 1 行だけ（皆伝 ${jin:-0} 行）"
 }
 
+# ---------- 秘密の門の双子: 器の写しが棚の門と 1 バイトも違わず・両方の --selftest が通るか ----------
+# 🔑 配る版は棚から切り離して固定（2026-10-13）だが、秘密の門（pre-commit-secret.sh）だけは棚の門と器の写しを同じ中身に保つ。
+#   正本は scripts/kit/scripts/git-hooks/pre-commit-secret.sh。器の提供元の棚では棚の門がそこへの別名、切り出した器では両方がその写し。
+#   出所: 2026-11-26 会員からの直しの提案（器の入れ替えで手元の門が古い型の門に戻り、門の --selftest はどこからも撃たれていなかった）
+#   ⚠️ --selftest を持たない古い門は引数を見ずに台の紙だけ当てて 0 で終わる＝終了の番号だけでなく ✅ の行を見る
+secret_twin() {
+  local live="$1" copy="$2" n g out
+  { [ -f "$live" ] && [ -f "$copy" ]; } || { echo "❌ 秘密の門の双子: 紙が無い（${live} / ${copy}）"; return 1; }
+  if ! cmp -s "$live" "$copy"; then
+    n=$(diff "$live" "$copy" | grep -c '^[<>]')
+    echo "❌ 秘密の門の双子: 器の写しが棚の門と違う（差 ${n} 行）: diff ${live} ${copy}"; return 1
+  fi
+  for g in "$live" "$copy"; do
+    out=$(sh "$g" --selftest 2>&1); n=$?
+    { [ "$n" = 0 ] && printf '%s\n' "$out" | grep -q '^✅ selftest:'; } || { printf '%s\n' "$out" | tail -3; echo "❌ 秘密の門の双子: ${g} の --selftest が通らない（終了 ${n}・古い門か型が死んでいる）"; return 1; }
+  done
+  echo "✅ 秘密の門の双子: 器の写しと棚の門は差 0 行・両方の --selftest が通った"
+}
+
 # ---------- --drift: 雛形の骨が生きている紙と一致するか ----------
 drift() {
   echo "ℹ️ drift: 退役（2026-10-13）。配る版は scripts/kit/ に固定してあり、棚の紙・道具とは照合しない"
@@ -347,6 +366,9 @@ selftest() {
   step "5 門の正の対照（正しい物を stage して pre-commit が通る）"
   ( cd "$kit" && git add -- CLAUDE.md .gitignore .claude/rules/規矩.md .claude/rules/メモリシステム.md .claude/rules/主君.md docs/SCOPE_PROGRESS.md 08プロジェクト/2000-01-01-検体/status.md \
       && sh scripts/git-hooks/pre-commit ) || die "selftest: 正しい物で pre-commit が落ちる（門が壊れている）"
+  step "5-2 秘密の門の双子（器の写しと棚の門の差を数え・両方の --selftest を撃つ）"
+  secret_twin "$ROOT/scripts/git-hooks/pre-commit-secret.sh" "$KIT/scripts/git-hooks/pre-commit-secret.sh" || die "selftest: 秘密の門の器の写しが棚の門と違うか、--selftest が通らない" 3
+  secret_twin "$kit/scripts/git-hooks/pre-commit-secret.sh" "$kit/scripts/kit/scripts/git-hooks/pre-commit-secret.sh" > /dev/null || die "selftest: 切り出した器の秘密の門と、その中の器の写しが違う" 3
   step "6 門の負制御 A（語彙外の state で pre-commit が落ちる）"
   mkdir -p "$kit/08プロジェクト/2000-01-02-悪い箱"
   printf -- '---\ntitle: 悪い箱\nstate: 未着手\nowner: x\nask: \nlever: \nuntil: \nresume: \nnext: \nabsorb: x\ndue: \ntmp_ttl: \nupdated: 2000-01-02\n---\n# 悪い箱\n' > "$kit/08プロジェクト/2000-01-02-悪い箱/status.md"
@@ -505,7 +527,7 @@ selftest() {
     [ ! -e "$w" ] || exit 1
   ) > "$t/wt.log" 2>&1 || { cat "$t/wt.log"; die "selftest: 席ごとの作業場所（open → push → close）が通らない"; }
   rm -rf "$t"
-  echo "✅ selftest: 切り出し・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・負制御 A/B/C/D/E（番号・README）・本陣の形（lift・一番上からの fill で入れ子が変わらない・2 か所の門・負制御）・器の更新（3 方向・衝突の負制御）・皆伝の道具（置き方・外への写しと git の版の負制御・open/push/close）・ページの面の門が全部通った"
+  echo "✅ selftest: 切り出し・fill・生成器（routine だけの機体と皆伝の機体こみ）・時計の門・kiroku・正の対照・秘密の門の双子（差 0 行・両方の --selftest）・負制御 A/B/C/D/E（番号・README）・本陣の形（lift・一番上からの fill で入れ子が変わらない・2 か所の門・負制御）・器の更新（3 方向・衝突の負制御）・皆伝の道具（置き方・外への写しと git の版の負制御・open/push/close）・ページの面の門が全部通った"
   exit 0
 }
 
